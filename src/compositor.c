@@ -1437,8 +1437,11 @@ notify_key(struct wl_input_device *device,
 	struct weston_compositor *compositor = wd->compositor;
 	uint32_t *k, *end;
 
-	if (state)
+	if (state) {
 		weston_compositor_idle_inhibit(compositor);
+		device->grab_key = key;
+		device->grab_time = time;
+	}
 	else
 		weston_compositor_idle_release(compositor);
 
@@ -1456,9 +1459,8 @@ notify_key(struct wl_input_device *device,
 		*k = key;
 	}
 
-	if (device->keyboard_focus_resource)
-		wl_resource_post_event(device->keyboard_focus_resource,
-				       WL_INPUT_DEVICE_KEY, time, key, state);
+	device->keyboard_grab->interface->key(device->keyboard_grab,
+						time, key, state);
 }
 
 WL_EXPORT void

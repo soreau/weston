@@ -1548,8 +1548,12 @@ notify_button(struct wl_input_device *device,
 {
 	struct weston_input_device *wd = (struct weston_input_device *) device;
 	struct weston_compositor *compositor = wd->compositor;
+	struct weston_surface *focus = (struct weston_surface *) device->pointer_focus;
+	uint32_t serial = wl_display_next_serial(compositor->wl_display);
 
 	if (state) {
+		if (compositor->ping_handler && focus)
+			compositor->ping_handler(focus, serial);
 		weston_compositor_idle_inhibit(compositor);
 		if (device->button_count == 0) {
 			device->grab_button = button;
@@ -1578,6 +1582,11 @@ notify_axis(struct wl_input_device *device,
 {
 	struct weston_input_device *wd = (struct weston_input_device *) device;
 	struct weston_compositor *compositor = wd->compositor;
+	struct weston_surface *focus = (struct weston_surface *) device->pointer_focus;
+	uint32_t serial = wl_display_next_serial(compositor->wl_display);
+
+	if (compositor->ping_handler && focus)
+		compositor->ping_handler(focus, serial);
 
 	weston_compositor_activity(compositor);
 
@@ -1631,9 +1640,14 @@ notify_key(struct wl_input_device *device,
 {
 	struct weston_input_device *wd = (struct weston_input_device *) device;
 	struct weston_compositor *compositor = wd->compositor;
+	struct weston_surface *focus = (struct weston_surface *) device->pointer_focus;
+	uint32_t serial = wl_display_next_serial(compositor->wl_display);
 	uint32_t *k, *end;
 
 	if (state) {
+		if (compositor->ping_handler && focus)
+			compositor->ping_handler(focus, serial);
+
 		weston_compositor_idle_inhibit(compositor);
 		device->grab_key = key;
 		device->grab_time = time;
@@ -2425,6 +2439,8 @@ weston_compositor_init(struct weston_compositor *ec, struct wl_display *display)
 	weston_layer_init(&ec->cursor_layer, &ec->fade_layer.link);
 
 	screenshooter_create(ec);
+
+	ec->ping_handler = NULL;
 
 	wl_data_device_manager_init(ec->wl_display);
 

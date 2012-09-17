@@ -21,6 +21,8 @@ weston_SOURCES =				\
 	screenshooter.c				\
 	screenshooter-protocol.c		\
 	screenshooter-server-protocol.h		\
+	weston-control-protocol.c		\
+	weston-control-server-protocol.h	\
 	clipboard.c				\
 	text-cursor-position-protocol.c		\
 	text-cursor-position-server-protocol.h	\
@@ -172,6 +174,8 @@ BUILT_SOURCES =					\
 	screenshooter-protocol.c		\
 	text-cursor-position-server-protocol.h	\
 	text-cursor-position-protocol.c		\
+	weston-control-server-protocol.h	\
+	weston-control-protocol.c		\
 	tablet-shell-protocol.c			\
 	tablet-shell-server-protocol.h		\
 	desktop-shell-protocol.c		\

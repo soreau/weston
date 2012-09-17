@@ -62,6 +62,7 @@
 #include <wayland-client.h>
 #include "../shared/cairo-util.h"
 #include "text-cursor-position-client-protocol.h"
+#include "weston-control-client-protocol.h"
 #include "workspaces-client-protocol.h"
 #include "../shared/os-compatibility.h"
 
@@ -77,6 +78,7 @@ struct display {
 	struct wl_data_device_manager *data_device_manager;
 	struct text_cursor_position *text_cursor_position;
 	struct workspace_manager *workspace_manager;
+	struct wl_control_theme *theme_controller;
 	EGLDisplay dpy;
 	EGLConfig argb_config;
 	EGLContext argb_ctx;
@@ -3553,6 +3555,24 @@ init_workspace_manager(struct display *d, uint32_t id)
 }
 
 static void
+receive_theme_info(void *data, struct wl_control_theme *wl_control_theme,
+				uint32_t red, uint32_t green, uint32_t blue)
+{
+	struct display *d = data;
+	struct window *window;
+
+	theme_destroy(d->theme);
+	d->theme = theme_create(red / 255.0f, green / 255.0f, blue / 255.0f);
+
+	wl_list_for_each(window, &d->window_list, link)
+		window_schedule_redraw(window);
+}
+
+static const struct wl_control_theme_listener theme_info_listener = {
+	receive_theme_info
+};
+
+static void
 display_handle_global(struct wl_display *display, uint32_t id,
 		      const char *interface, uint32_t version, void *data)
 {
@@ -3579,6 +3599,10 @@ display_handle_global(struct wl_display *display, uint32_t id,
 					&text_cursor_position_interface);
 	} else if (strcmp(interface, "workspace_manager") == 0) {
 		init_workspace_manager(d, id);
+	} else if (strcmp(interface, "wl_control_theme") == 0) {
+		d->theme_controller = wl_display_bind(display, id, &wl_control_theme_interface);
+		if (d->theme_controller)
+			wl_control_theme_add_listener(d->theme_controller, &theme_info_listener, d);
 	}
 }
 
@@ -3741,7 +3765,7 @@ display_create(int argc, char *argv[])
 
 	create_cursors(d);
 
-	d->theme = theme_create();
+	d->theme = theme_create(1.0, 1.0, 1.0);
 
 	wl_list_init(&d->window_list);
 

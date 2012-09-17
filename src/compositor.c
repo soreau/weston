@@ -248,6 +248,7 @@ weston_surface_create(struct weston_compositor *compositor)
 	pixman_region32_init(&surface->damage);
 	pixman_region32_init(&surface->opaque);
 	pixman_region32_init(&surface->clip);
+	pixman_region32_init(&surface->crop);
 	undef_region(&surface->input);
 	pixman_region32_init(&surface->transform.opaque);
 	wl_list_init(&surface->frame_callback_list);
@@ -373,6 +374,16 @@ static void
 weston_surface_update_transform_disable(struct weston_surface *surface)
 {
 	surface->transform.enabled = 0;
+	pixman_region32_t opaque_region;
+
+	pixman_region32_init(&opaque_region);
+	pixman_region32_copy(&opaque_region, &surface->opaque);
+	if (pixman_region32_not_empty(&surface->crop))
+		pixman_region32_subtract(&opaque_region,
+				  &opaque_region, &surface->crop);
+	if (pixman_region32_not_empty(&opaque_region))
+		pixman_region32_intersect(&opaque_region,
+				  &opaque_region, &surface->crop);
 
 	/* round off fractions when not transformed */
 	surface->geometry.x = roundf(surface->geometry.x);
@@ -386,7 +397,8 @@ weston_surface_update_transform_disable(struct weston_surface *surface)
 
 	if (surface->alpha == 1.0) {
 		pixman_region32_copy(&surface->transform.opaque,
-				     &surface->opaque);
+				     &opaque_region);
+		pixman_region32_fini(&opaque_region);
 		pixman_region32_translate(&surface->transform.opaque,
 					  surface->geometry.x,
 					  surface->geometry.y);
@@ -591,16 +603,26 @@ weston_compositor_pick_surface(struct weston_compositor *compositor,
 			       wl_fixed_t *sx, wl_fixed_t *sy)
 {
 	struct weston_surface *surface;
+	pixman_region32_t input_region;
+
+	pixman_region32_init(&input_region);
 
 	wl_list_for_each(surface, &compositor->surface_list, link) {
 		weston_surface_from_global_fixed(surface, x, y, sx, sy);
-		if (pixman_region32_contains_point(&surface->input,
+		pixman_region32_copy(&input_region, &surface->input);
+		if (pixman_region32_not_empty(&surface->crop))
+			pixman_region32_intersect(&input_region,
+					  &input_region, &surface->crop);
+		if (pixman_region32_contains_point(&input_region,
 						   wl_fixed_to_int(*sx),
 						   wl_fixed_to_int(*sy),
-						   NULL))
+						   NULL)) {
+			pixman_region32_fini(&input_region);
 			return surface;
+		}
 	}
 
+	pixman_region32_fini(&input_region);
 	return NULL;
 }
 
@@ -701,6 +723,8 @@ destroy_surface(struct wl_resource *resource)
 	pixman_region32_fini(&surface->clip);
 	if (!region_is_undefined(&surface->input))
 		pixman_region32_fini(&surface->input);
+	if (!region_is_undefined(&surface->crop))
+		pixman_region32_fini(&surface->crop);
 
 	wl_list_for_each_safe(cb, next, &surface->frame_callback_list, link)
 		wl_resource_destroy(&cb->resource);
@@ -862,6 +886,7 @@ weston_output_repaint(struct weston_output *output, uint32_t msecs)
 	struct weston_animation *animation, *next;
 	struct weston_frame_callback *cb, *cnext;
 	struct wl_list frame_callback_list;
+	struct wl_resource *resource;
 	pixman_region32_t opaque, output_damage;
 
 	weston_compositor_update_drag_surfaces(ec);
@@ -922,6 +947,9 @@ weston_output_repaint(struct weston_output *output, uint32_t msecs)
 		animation->frame_counter++;
 		animation->frame(animation, output, msecs);
 	}
+
+	wl_list_for_each(resource, &ec->control_resource_list, link)
+		ec->update_control_info(resource);
 }
 
 static int
@@ -1095,6 +1123,9 @@ weston_surface_assign_output(struct weston_surface *es)
 	pixman_region32_t region;
 	uint32_t max, area, mask;
 	pixman_box32_t *e;
+
+	if (!pixman_region32_not_empty(&es->transform.boundingbox))
+		weston_surface_update_transform(es);
 
 	new_output = NULL;
 	max = 0;
@@ -2757,6 +2788,7 @@ weston_compositor_init(struct weston_compositor *ec,
 	wl_list_init(&ec->button_binding_list);
 	wl_list_init(&ec->axis_binding_list);
 	wl_list_init(&ec->fade.animation.link);
+	wl_list_init(&ec->control_resource_list);
 
 	weston_plane_init(&ec->primary_plane, 0, 0);
 

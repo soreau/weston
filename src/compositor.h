@@ -355,6 +355,8 @@ struct weston_compositor {
 	int (*authenticate)(struct weston_compositor *c, uint32_t id);
 
 	void (*ping_handler)(struct weston_surface *surface, uint32_t serial);
+	void (*update_control_info) (struct wl_resource *resource);
+	struct wl_list control_resource_list;
 
 	int launcher_sock;
 
@@ -403,6 +405,7 @@ struct weston_surface {
 	pixman_region32_t clip;
 	pixman_region32_t damage;
 	pixman_region32_t opaque;
+	pixman_region32_t crop;
 	pixman_region32_t input;
 	int32_t pitch;
 	struct wl_list link;

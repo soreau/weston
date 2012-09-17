@@ -51,10 +51,13 @@ struct theme {
 	int margin;
 	int width;
 	int titlebar_height;
+	struct {
+		float r, g, b;
+	} color;
 };
 
 struct theme *
-theme_create(void);
+theme_create(float red, float green, float blue);
 void
 theme_destroy(struct theme *t);
 

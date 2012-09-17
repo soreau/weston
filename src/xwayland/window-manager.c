@@ -1449,7 +1449,7 @@ weston_wm_create(struct weston_xserver *wxs)
 		XCB_EVENT_MASK_PROPERTY_CHANGE;
 	xcb_change_window_attributes(wm->conn, wm->screen->root,
 				     XCB_CW_EVENT_MASK, values);
-	wm->theme = theme_create();
+	wm->theme = theme_create(1.0, 1.0, 1.0);
 
 	weston_wm_create_wm_window(wm);
 

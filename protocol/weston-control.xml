@@ -1,0 +1,75 @@
+<protocol name="wl_control">
+
+  <interface name="wl_control" version="1">
+    <request name="get_surface_info"/>
+    <request name="move_surface">
+      <arg name="id" type="uint"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+    </request>
+    <request name="resize_surface">
+      <arg name="id" type="uint"/>
+      <arg name="width" type="uint"/>
+      <arg name="height" type="uint"/>
+    </request>
+    <request name="set_surface_alpha">
+      <arg name="id" type="uint"/>
+      <arg name="alpha" type="uint"/>
+    </request>
+    <request name="surface_toggle_hide">
+      <arg name="id" type="uint"/>
+    </request>
+    <request name="set_surface_rotation">
+      <arg name="id" type="uint"/>
+      <arg name="rotation" type="uint"/>
+    </request>
+    <request name="send_key_event">
+      <arg name="key" type="uint"/>
+      <arg name="state" type="uint"/>
+    </request>
+    <request name="focus_surface">
+      <arg name="id" type="uint"/>
+    </request>
+    <request name="raise_surface">
+      <arg name="id" type="uint"/>
+    </request>
+    <request name="set_theme_color">
+      <arg name="red" type="uint"/>
+      <arg name="green" type="uint"/>
+      <arg name="blue" type="uint"/>
+    </request>
+    <request name="set_crop_region">
+      <arg name="id" type="uint"/>
+      <arg name="region" type="object" interface="wl_region"/>
+    </request>
+    <request name="reset_crop_region">
+      <arg name="id" type="uint"/>
+    </request>
+    <request name="kill_surface">
+      <arg name="id" type="uint"/>
+    </request>
+    <event name="surface_info">
+      <arg name="id" type="uint"/>
+      <arg name="z_order" type="uint"/>
+      <arg name="title" type="string"/>
+      <arg name="type" type="string"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="uint"/>
+      <arg name="height" type="uint"/>
+      <arg name="alpha" type="uint"/>
+    </event>
+    <event name="surface_destroy">
+      <arg name="id" type="uint"/>
+    </event>
+  </interface>
+
+  <interface name="wl_control_theme" version="1">
+    <event name="colors">
+      <arg name="red" type="uint"/>
+      <arg name="green" type="uint"/>
+      <arg name="blue" type="uint"/>
+    </event>
+  </interface>
+
+</protocol>

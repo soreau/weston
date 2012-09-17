@@ -32,5 +32,6 @@ weston-screensaver
 weston-screenshooter
 weston-tablet-shell
 weston-terminal
+weston-control
 workspaces-client-protocol.h
 workspaces-protocol.c

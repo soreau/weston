@@ -1,5 +1,6 @@
 bin_PROGRAMS =					\
 	weston-info				\
+	weston-control				\
 	$(terminal)
 
 noinst_PROGRAMS =				\
@@ -69,6 +70,8 @@ libtoytoolkit_a_SOURCES =			\
 	window.h				\
 	text-cursor-position-protocol.c		\
 	text-cursor-position-client-protocol.h	\
+	weston-control-protocol.c		\
+	weston-control-client-protocol.h	\
 	workspaces-protocol.c			\
 	workspaces-client-protocol.h
 
@@ -82,6 +85,9 @@ flower_LDADD = $(toolkit_libs)
 
 weston_screenshooter_SOURCES = screenshot.c screenshooter-protocol.c
 weston_screenshooter_LDADD = $(toolkit_libs)
+
+weston_control_SOURCES = weston-control.c weston-control-protocol.c
+weston_control_LDADD = $(toolkit_libs) -lncurses
 
 weston_terminal_SOURCES = terminal.c
 weston_terminal_LDADD = $(toolkit_libs) -lutil
@@ -143,6 +149,8 @@ weston_tablet_shell_LDADD = $(toolkit_libs)
 BUILT_SOURCES =					\
 	screenshooter-client-protocol.h		\
 	screenshooter-protocol.c		\
+	weston-control-client-protocol.h	\
+	weston-control-protocol.c		\
 	text-cursor-position-client-protocol.h	\
 	text-cursor-position-protocol.c		\
 	text-protocol.c				\

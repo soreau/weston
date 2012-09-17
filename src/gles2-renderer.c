@@ -613,6 +613,7 @@ draw_surface(struct weston_surface *es, struct weston_output *output,
 	/* non-opaque region in surface coordinates: */
 	pixman_region32_t surface_blend;
 	pixman_region32_t *buffer_damage;
+	pixman_region32_t opaque;
 	GLint filter;
 	int i;
 
@@ -652,9 +653,19 @@ draw_surface(struct weston_surface *es, struct weston_output *output,
 	/* blended region is whole surface minus opaque region: */
 	pixman_region32_init_rect(&surface_blend, 0, 0,
 				  es->geometry.width, es->geometry.height);
-	pixman_region32_subtract(&surface_blend, &surface_blend, &es->opaque);
+	pixman_region32_init(&opaque);
+	pixman_region32_copy(&opaque, &es->opaque);
+	if (pixman_region32_not_empty(&es->crop)) {
+		pixman_region32_copy(&surface_blend, &es->crop);
+		pixman_region32_subtract(&opaque,
+				  &opaque, &es->crop);
+		if (pixman_region32_not_empty(&opaque))
+			pixman_region32_intersect(&opaque,
+					  &opaque, &es->crop);
+	}
+	pixman_region32_subtract(&surface_blend, &surface_blend, &opaque);
 
-	if (pixman_region32_not_empty(&es->opaque)) {
+	if (pixman_region32_not_empty(&opaque)) {
 		if (es->shader == &ec->texture_shader_rgba) {
 			/* Special case for RGBA textures with possibly
 			 * bad data in alpha channel: use the shader
@@ -670,8 +681,9 @@ draw_surface(struct weston_surface *es, struct weston_output *output,
 		else
 			glDisable(GL_BLEND);
 
-		repaint_region(es, &repaint, &es->opaque);
+		repaint_region(es, &repaint, &opaque);
 	}
+	pixman_region32_fini(&opaque);
 
 	if (pixman_region32_not_empty(&surface_blend)) {
 		weston_compositor_use_shader(ec, es->shader);

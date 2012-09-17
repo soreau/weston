@@ -179,6 +179,7 @@ int main(int argc, char *argv[])
 	flower.height = 200;
 	flower.display = d;
 	flower.window = window_create(d);
+	window_set_title(flower.window, "Flower");
 	flower.widget = window_add_widget(flower.window, &flower);
 
 	widget_set_resize_handler(flower.widget, resize_handler);

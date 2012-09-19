@@ -56,6 +56,7 @@
 
 static struct wl_list child_process_list;
 static struct weston_compositor *segv_compositor;
+static char *program;
 
 static int
 sigchld_handler(int signal_number, void *data)
@@ -2826,13 +2827,38 @@ static int on_term_signal(int signal_number, void *data)
 }
 
 static void
-on_segv_signal(int s, siginfo_t *siginfo, void *context)
+crash_handler(int s, siginfo_t *siginfo, void *context)
 {
 	void *buffer[32];
-	int i, count;
+	char cmd[1024], bt_dir[] = "/tmp";
+	char *program_name, *c;
+	int pid, i, count, signo;
 	Dl_info info;
 
-	/* This SIGSEGV handler will do a best-effort backtrace, and
+	/* Dump gdb backtrace to file */
+
+	c = &program[strlen(program)];
+	while ((*(c - 1) != '/') && (c != program))
+		c--;
+
+	program_name = c;
+	pid = getpid();
+
+	snprintf (cmd, 1024,
+		"echo -e \"set prompt\nthread apply all bt full\n"
+		"echo \\\\\\n\necho \\\\\\n\nbt\nquit\" > %s/gdb.tmp;"
+		"gdb -q %s %i < %s/gdb.tmp | "
+		"grep -v \"No symbol table\" | "
+		"tee %s/%s_crash-%i.out; rm -f %s/gdb.tmp; "
+		"echo \"\n[CRASH_HANDLER]: "
+		"\\\"%s/%s_crash-%i.out\\\" created!\n\"",
+		bt_dir, program, pid, bt_dir, bt_dir, program_name, pid,
+		bt_dir, bt_dir, program_name, pid);
+
+	system(cmd);
+
+
+	/* This crash handler will do a best-effort backtrace, and
 	 * then call the backend restore function, which will switch
 	 * back to the vt we launched from or ungrab X etc and then
 	 * raise SIGTRAP.  If we run weston under gdb from X or a
@@ -2840,7 +2866,13 @@ on_segv_signal(int s, siginfo_t *siginfo, void *context)
 	 * will allow weston to switch back to gdb on crash and then
 	 * gdb will catch the crash with SIGTRAP. */
 
-	weston_log("caught segv\n");
+	signo = siginfo->si_signo;
+
+	weston_log("Caught %s\n", signo == SIGSEGV ? "SIGSEGV" :
+				  signo == SIGFPE ? "SIGFPE" :
+				  signo == SIGILL ? "SIGILL" :
+				  signo == SIGABRT ? "SIGABRT" :
+				  "unknown signal");
 
 	count = backtrace(buffer, ARRAY_LENGTH(buffer));
 	for (i = 0; i < count; i++) {
@@ -3010,7 +3042,7 @@ int main(int argc, char *argv[])
 	struct weston_compositor *ec;
 	struct wl_event_source *signals[4];
 	struct wl_event_loop *loop;
-	struct sigaction segv_action;
+	struct sigaction crash_action;
 	struct weston_compositor
 		*(*backend_init)(struct wl_display *display,
 				 int argc, char *argv[], const char *config_file);
@@ -3022,6 +3054,7 @@ int main(int argc, char *argv[])
 	int32_t help = 0;
 	char *socket_name = "wayland-0";
 	char *config_file;
+	program = argv[0];
 
 	const struct config_key core_config_keys[] = {
 		{ "modules", CONFIG_KEY_STRING, &modules },
@@ -3095,11 +3128,13 @@ int main(int argc, char *argv[])
 		exit(EXIT_FAILURE);
 	}
 
-	segv_action.sa_flags = SA_SIGINFO | SA_RESETHAND;
-	segv_action.sa_sigaction = on_segv_signal;
-	sigemptyset(&segv_action.sa_mask);
-	sigaction(SIGSEGV, &segv_action, NULL);
-	segv_compositor = ec;
+	crash_action.sa_flags = SA_SIGINFO | SA_RESETHAND;
+	crash_action.sa_sigaction = crash_handler;
+	sigemptyset(&crash_action.sa_mask);
+	sigaction(SIGSEGV, &crash_action, NULL);
+	sigaction(SIGFPE, &crash_action, NULL);
+	sigaction(SIGILL, &crash_action, NULL);
+	sigaction(SIGABRT, &crash_action, NULL);
 
 	for (i = 1; argv[i]; i++)
 		weston_log("fatal: unhandled option: %s\n", argv[i]);

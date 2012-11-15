@@ -341,9 +341,7 @@ enum window_location {
 	WINDOW_RESIZING_TOP_RIGHT = 9,
 	WINDOW_RESIZING_BOTTOM_RIGHT = 10,
 	WINDOW_RESIZING_MASK = 15,
-	WINDOW_EXTERIOR = 16,
-	WINDOW_TITLEBAR = 17,
-	WINDOW_CLIENT_AREA = 18,
+	WINDOW_RESIZING_FROM_CENTER = 16,
 };
 
 static const cairo_user_data_key_t surface_data_key;
@@ -802,12 +800,19 @@ display_get_pointer_image(struct display *display, int pointer)
 static void
 window_get_resize_dx_dy(struct window *window, int *x, int *y)
 {
-	if (window->resize_edges & WINDOW_RESIZING_LEFT)
+	if (window->resize_edges & WINDOW_RESIZING_FROM_CENTER) {
+		*x = window->server_allocation.width - window->allocation.width;
+		*x /= 2;
+	} else if (window->resize_edges & WINDOW_RESIZING_LEFT)
 		*x = window->server_allocation.width - window->allocation.width;
 	else
 		*x = 0;
 
-	if (window->resize_edges & WINDOW_RESIZING_TOP)
+	if (window->resize_edges & WINDOW_RESIZING_FROM_CENTER) {
+		*y = window->server_allocation.height -
+			window->allocation.height;
+		*y /= 2;
+	} else if (window->resize_edges & WINDOW_RESIZING_TOP)
 		*y = window->server_allocation.height -
 			window->allocation.height;
 	else

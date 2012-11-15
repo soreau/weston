@@ -1079,6 +1079,8 @@ struct weston_resize_grab {
 	struct shell_grab base;
 	uint32_t edges;
 	int32_t width, height;
+	wl_fixed_t last_x, last_y;
+	wl_fixed_t offset_x, offset_y;
 };
 
 static void
@@ -1087,33 +1089,62 @@ resize_grab_motion(struct wl_pointer_grab *grab,
 {
 	struct weston_resize_grab *resize = (struct weston_resize_grab *) grab;
 	struct wl_pointer *pointer = grab->pointer;
+	struct weston_seat *ws = (struct weston_seat *) pointer->seat;
 	struct shell_surface *shsurf = resize->base.shsurf;
-	int32_t width, height;
+	int32_t width, height, offset;
 	wl_fixed_t from_x, from_y;
 	wl_fixed_t to_x, to_y;
 
 	if (!shsurf)
 		return;
 
+	if (((resize->edges & WL_SHELL_SURFACE_RESIZE_FROM_CENTER) &&
+				!(ws->modifier_state & MODIFIER_SHIFT)) ||
+		(!(resize->edges & WL_SHELL_SURFACE_RESIZE_FROM_CENTER) &&
+				(ws->modifier_state & MODIFIER_SHIFT))) {
+		/* Flip resize-from-center bits and soft-reset the grab */
+		resize->edges ^= WL_SHELL_SURFACE_RESIZE_FROM_CENTER;
+		resize->width = shsurf->surface->geometry.width;
+		resize->height = shsurf->surface->geometry.height;
+		resize->offset_x = resize->last_x - pointer->grab_x;
+		resize->offset_y = resize->last_y - pointer->grab_y;
+	}
+
+	resize->last_x = pointer->x;
+	resize->last_y = pointer->y;
+
 	weston_surface_from_global_fixed(shsurf->surface,
-				         pointer->grab_x, pointer->grab_y,
+				         pointer->grab_x + resize->offset_x,
+				         pointer->grab_y + resize->offset_y,
 				         &from_x, &from_y);
 	weston_surface_from_global_fixed(shsurf->surface,
 				         pointer->x, pointer->y, &to_x, &to_y);
 
 	width = resize->width;
 	if (resize->edges & WL_SHELL_SURFACE_RESIZE_LEFT) {
-		width += wl_fixed_to_int(from_x - to_x);
+		offset = wl_fixed_to_int(from_x - to_x);
 	} else if (resize->edges & WL_SHELL_SURFACE_RESIZE_RIGHT) {
-		width += wl_fixed_to_int(to_x - from_x);
-	}
+		offset = wl_fixed_to_int(to_x - from_x);
+	} else
+		offset = 0;
+
+	if (resize->edges & WL_SHELL_SURFACE_RESIZE_FROM_CENTER)
+		offset *= 2;
+
+	width += offset;
 
 	height = resize->height;
 	if (resize->edges & WL_SHELL_SURFACE_RESIZE_TOP) {
-		height += wl_fixed_to_int(from_y - to_y);
+		offset = wl_fixed_to_int(from_y - to_y);
 	} else if (resize->edges & WL_SHELL_SURFACE_RESIZE_BOTTOM) {
-		height += wl_fixed_to_int(to_y - from_y);
-	}
+		offset = wl_fixed_to_int(to_y - from_y);
+	} else
+		offset = 0;
+
+	if (resize->edges & WL_SHELL_SURFACE_RESIZE_FROM_CENTER)
+		offset *= 2;
+
+	height += offset;
 
 	shsurf->client->send_configure(shsurf->surface,
 				       resize->edges, width, height);
@@ -1163,7 +1194,7 @@ surface_resize(struct shell_surface *shsurf,
 	if (shsurf->type == SHELL_SURFACE_FULLSCREEN)
 		return 0;
 
-	if (edges == 0 || edges > 15 ||
+	if (edges == 0 || (edges & 0x0f) > 15 ||
 	    (edges & 3) == 3 || (edges & 12) == 12)
 		return 0;
 
@@ -1174,9 +1205,13 @@ surface_resize(struct shell_surface *shsurf,
 	resize->edges = edges;
 	resize->width = shsurf->surface->geometry.width;
 	resize->height = shsurf->surface->geometry.height;
+	resize->offset_x = resize->offset_y = 0;
 
 	shell_grab_start(&resize->base, &resize_grab_interface, shsurf,
-			 ws->seat.pointer, edges);
+			 ws->seat.pointer, edges & 0x0f);
+
+	resize->last_x = ws->seat.pointer->grab_x;
+	resize->last_y = ws->seat.pointer->grab_y;
 
 	return 0;
 }
@@ -1196,6 +1231,9 @@ shell_surface_resize(struct wl_client *client, struct wl_resource *resource,
 	    ws->seat.pointer->grab_serial != serial ||
 	    ws->seat.pointer->focus != &shsurf->surface->surface)
 		return;
+
+	if (ws->modifier_state & MODIFIER_SHIFT)
+		edges |= WL_SHELL_SURFACE_RESIZE_FROM_CENTER;
 
 	if (surface_resize(shsurf, ws, edges) < 0)
 		wl_resource_post_no_memory(resource);
@@ -2348,6 +2386,7 @@ resize_binding(struct wl_seat *seat, uint32_t time, uint32_t button, void *data)
 {
 	struct weston_surface *surface =
 		(struct weston_surface *) seat->pointer->focus;
+	struct weston_seat *ws = (struct weston_seat *) seat;
 	uint32_t edges = 0;
 	int32_t x, y;
 	struct shell_surface *shsurf;
@@ -2377,6 +2416,9 @@ resize_binding(struct wl_seat *seat, uint32_t time, uint32_t button, void *data)
 		edges |= 0;
 	else
 		edges |= WL_SHELL_SURFACE_RESIZE_BOTTOM;
+
+	if (ws->modifier_state & MODIFIER_SHIFT)
+		edges |= WL_SHELL_SURFACE_RESIZE_FROM_CENTER;
 
 	surface_resize(shsurf, (struct weston_seat *) seat, edges);
 }

@@ -198,6 +198,8 @@ struct shell_surface {
 		int32_t initial_up;
 		struct wl_seat *seat;
 		uint32_t serial;
+		struct shell_surface *prev;
+		struct wl_listener prev_listener;
 	} popup;
 
 	struct {
@@ -2288,12 +2290,31 @@ popup_grab_end(struct wl_pointer *pointer)
 	struct wl_pointer_grab *grab = pointer->grab;
 	struct shell_surface *shsurf =
 		container_of(grab, struct shell_surface, popup.grab);
+	struct shell_surface *old_surface;
 
 	if (pointer->grab->interface == &popup_grab_interface) {
-		wl_shell_surface_send_popup_done(&shsurf->resource);
 		wl_pointer_end_grab(grab->pointer);
-		shsurf->popup.grab.pointer = NULL;
+		/* Send the popup_done event to all the popups open, and not just
+		 * the one that currently has the grab. */
+		while (shsurf && shsurf->popup.grab.pointer) {
+			wl_shell_surface_send_popup_done(&shsurf->resource);
+			shsurf->popup.grab.pointer = NULL;
+
+			old_surface = shsurf;
+			shsurf = shsurf->popup.prev;
+			old_surface->popup.prev = NULL;
+		}
 	}
+}
+
+static void
+popup_prev_destroyed(struct wl_listener *listener, void *data)
+{
+	struct shell_surface *shsurf = container_of(listener,
+						struct shell_surface,
+						surface_destroy_listener);
+
+	shsurf->popup.prev = NULL;
 }
 
 static void
@@ -2302,6 +2323,7 @@ shell_map_popup(struct shell_surface *shsurf)
 	struct wl_seat *seat = shsurf->popup.seat;
 	struct weston_surface *es = shsurf->surface;
 	struct weston_surface *parent = shsurf->parent;
+	struct shell_surface *popup_parent;
 
 	es->output = parent->output;
 	shsurf->popup.grab.interface = &popup_grab_interface;
@@ -2311,9 +2333,30 @@ shell_map_popup(struct shell_surface *shsurf)
 	weston_surface_set_position(es, shsurf->popup.x, shsurf->popup.y);
 	weston_surface_update_transform(es);
 
+	if (seat->pointer->grab->interface == &popup_grab_interface)
+		popup_parent = container_of(seat->pointer->grab,
+				      struct shell_surface, popup.grab);
+	else
+		popup_parent = NULL;
+
 	/* We don't require the grab to still be active, but if another
 	 * grab has started in the meantime, we end the popup now. */
-	if (seat->pointer->grab_serial == shsurf->popup.serial) {
+
+	/* Need to make sure here that a sub-popup doesn't trigger the
+	 * send_popup_done case.  And we need to set the popup.prev
+	 * pointer.  We can look at seat->pointer->grab.interface to
+	 * see if it's &popup_grab_interface and if it is use
+	 * container_of on seat->pointer->grab to get back to the
+	 * shsurf. */
+
+	if (seat->pointer->grab_serial == shsurf->popup.serial ||
+		(popup_parent && popup_parent->resource.client == shsurf->resource.client)) {
+		shsurf->popup.prev = popup_parent;
+		if (popup_parent) {
+			shsurf->popup.prev_listener.notify = popup_prev_destroyed;
+			wl_signal_add(&popup_parent->surface->surface.resource.destroy_signal,
+						  &shsurf->popup.prev_listener);
+		}
 		wl_pointer_start_grab(seat->pointer, &shsurf->popup.grab);
 	} else {
 		wl_shell_surface_send_popup_done(&shsurf->resource);
@@ -2353,12 +2396,27 @@ static const struct wl_shell_surface_interface shell_surface_implementation = {
 };
 
 static void
+grab_parent_popup(struct shell_surface *shsurf)
+{
+	wl_pointer_end_grab(shsurf->popup.grab.pointer);
+	shsurf->popup.grab.pointer = NULL;
+	struct shell_surface *parent = shsurf->popup.prev;
+	if (parent) {
+		wl_pointer_start_grab(parent->popup.seat->pointer, &parent->popup.grab);
+		shsurf->popup.prev = NULL;
+	}
+}
+
+static void
 destroy_shell_surface(struct shell_surface *shsurf)
 {
 	if (shsurf->surface_data)
 		surface_data_send_gone(shsurf->surface_data);
-	if (shsurf->popup.grab.pointer)
-		wl_pointer_end_grab(shsurf->popup.grab.pointer);
+
+	/* If this surface has a parent popup, grab it. */
+	if (shsurf->popup.grab.pointer) {
+		grab_parent_popup(shsurf);
+	}
 
 	if (shsurf->fullscreen.type == WL_SHELL_SURFACE_FULLSCREEN_METHOD_DRIVER &&
 	    shell_surface_is_top_fullscreen(shsurf)) {
@@ -3616,6 +3674,12 @@ shell_surface_configure(struct weston_surface *es, int32_t sx, int32_t sy, int32
 	struct desktop_shell *shell = shsurf->shell;
 
 	int type_changed = 0;
+
+	/* If this surface has just been unmapped and we have a parent popup,
+	 * grab it. */
+	if (!weston_surface_is_mapped(es) && shsurf->popup.grab.pointer) {
+		grab_parent_popup(shsurf);
+	}
 
 	if (width == 0)
 		return;

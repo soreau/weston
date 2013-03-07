@@ -82,6 +82,48 @@
     </enum>
   </interface>
 
+  <interface name="surface_data" version="1">
+    <description summary="the surface data offer object">
+	The shell can use this interface to receive surface information or make
+	requests for this surface.
+    </description>
+    <request name="destroy" type="destructor">
+      <description summary="destroy surface request">
+	The shell must send this request in response to a gone event so	the
+	compositor can destroy the object properly.
+      </description>
+    </request>
+    <event name="output_mask">
+      <description summary="send the surface object output_mask to the shell"/>
+      <arg name="output_mask" type="uint"/>
+    </event>
+    <event name="title">
+      <description summary="send the surface object title to the shell"/>
+      <arg name="title" type="string"/>
+    </event>
+    <event name="gone">
+      <description summary="destroy surface notification">
+	The compositor should send this event to notify the shell that a
+	surface has been destroyed. The client must respond with a destroy
+	request.
+      </description>
+    </event>
+  </interface>
+
+  <interface name="surface_data_manager" version="1">
+    <description summary="send surface object to shell">
+	The compositor can offer surface data to a shell. The client can use
+	this interface as a way to receive special surface_data objects.
+    </description>
+    <event name="surface_object">
+      <description summary="surface object">
+	Surface object sent to a shell. This object is intended to allow the
+	shell to initiate a surface_data object interface.
+      </description>
+      <arg name="id" type="new_id" interface="surface_data"/>
+    </event>
+  </interface>
+
   <interface name="screensaver" version="1">
     <description summary="interface for implementing screensavers">
       Only one client can bind this interface at a time.

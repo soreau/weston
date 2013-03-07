@@ -1470,6 +1470,9 @@ shell_surface_minimize(struct shell_surface *shsurf)
 	shsurf->saved_type = shsurf->type;
 	shsurf->minimized = 1;
 
+	send_surface_data_focused_state(surface);
+	wl_shell_surface_send_minimize(&shsurf->resource);
+
 	/* Focus next surface in stack */
 	wl_list_for_each(seat, &compositor->seat_list, link)
 		if (seat->seat.keyboard &&
@@ -1486,7 +1489,6 @@ shell_surface_minimize(struct shell_surface *shsurf)
 				wl_keyboard_set_focus(seat->seat.keyboard, NULL);
 		}
 
-	send_surface_data_focused_state(surface);
 	weston_compositor_damage_all(compositor);
 }
 
@@ -1506,6 +1508,7 @@ surface_unminimize(struct shell_surface *shsurf, struct workspace *ws)
 	shell_surface_focus(shsurf);
 	send_surface_data_focused_state(surface);
 	shsurf->minimized = false;
+	wl_shell_surface_send_unminimize(&shsurf->resource);
 	weston_compositor_damage_all(compositor);
 }
 
@@ -1947,6 +1950,10 @@ static void
 shell_surface_set_minimized(struct wl_client *client,
 			    struct wl_resource *resource)
 {
+	struct shell_surface *shsurf = resource->data;
+
+	shell_surface_minimize(shsurf);
+	send_surface_data_minimized_state(shsurf->surface);
 }
 
 static void

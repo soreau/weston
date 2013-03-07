@@ -220,6 +220,7 @@ struct window {
 	int resize_needed;
 	int type;
 	int focus_count;
+	int minimized;
 
 	int resizing;
 	int fullscreen_method;
@@ -1925,7 +1926,7 @@ frame_button_button_handler(struct widget *widget,
 			display_exit(window->display);
 		break;
 	case FRAME_BUTTON_MINIMIZE:
-		fprintf(stderr,"Minimize stub\n");
+		window_set_minimized(window, !window->minimized);
 		break;
 	case FRAME_BUTTON_MAXIMIZE:
 		window_set_maximized(window, window->type != TYPE_MAXIMIZED);
@@ -3326,11 +3327,17 @@ handle_unmaximize(void *data, struct wl_shell_surface *shell_surface)
 static void
 handle_minimize(void *data, struct wl_shell_surface *shell_surface)
 {
+	struct window *window = data;
+
+	window->minimized = 1;
 }
 
 static void
 handle_unminimize(void *data, struct wl_shell_surface *shell_surface)
 {
+	struct window *window = data;
+
+	window->minimized = 0;
 }
 
 static const struct wl_shell_surface_listener shell_surface_listener = {
@@ -3469,6 +3476,22 @@ window_set_maximized(struct window *window, int maximized)
 				       window->saved_allocation.width,
 				       window->saved_allocation.height);
 	}
+}
+
+void
+window_set_minimized(struct window *window, int minimized)
+{
+	if (!window->display->shell)
+		return;
+
+	if (window->minimized == minimized)
+		return;
+
+	if (minimized) {
+		wl_shell_surface_set_minimized(window->shell_surface);
+		window->minimized = 1;
+	} else
+		window->minimized = 0;
 }
 
 void

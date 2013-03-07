@@ -87,6 +87,18 @@
 	The shell can use this interface to receive surface information or make
 	requests for this surface.
     </description>
+    <request name="minimize">
+      <description summary="ask the compositor to minimize the surface"/>
+    </request>
+    <request name="unminimize">
+      <description summary="ask the compositor to unminimize the surface"/>
+    </request>
+    <request name="focus">
+      <description summary="ask the compositor to focus the surface"/>
+    </request>
+    <request name="close">
+      <description summary="ask the compositor to close the surface"/>
+    </request>
     <request name="destroy" type="destructor">
       <description summary="destroy surface request">
 	The shell must send this request in response to a gone event so	the
@@ -100,6 +112,14 @@
     <event name="title">
       <description summary="send the surface object title to the shell"/>
       <arg name="title" type="string"/>
+    </event>
+    <event name="minimized">
+      <description summary="send the surface object minimize state to the shell"/>
+      <arg name="minimized" type="int"/>
+    </event>
+    <event name="focused">
+      <description summary="send the surface object focus state to the shell"/>
+      <arg name="focused" type="int"/>
     </event>
     <event name="gone">
       <description summary="destroy surface notification">

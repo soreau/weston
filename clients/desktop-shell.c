@@ -122,8 +122,10 @@ struct list_item {
 	struct panel *panel;
 	cairo_surface_t *icon;
 	int focused, highlight;
+	int x, y;
 	struct wl_list link;
 	struct wl_list surface_link;
+	struct wl_list reorder_link;
 };
 
 struct panel_launcher {
@@ -1145,6 +1147,9 @@ panel_list_item_motion_handler(struct widget *widget, struct input *input,
 {
 	struct list_item *item = data;
 
+	item->x = x;
+	item->y = y;
+
 	widget_set_tooltip(widget, basename((char *)item->surface->title), x, y);
 
 	return CURSOR_LEFT_PTR;
@@ -1156,6 +1161,8 @@ panel_list_item_enter_handler(struct widget *widget, struct input *input,
 {
 	struct list_item *item = data;
 
+	item->x = x;
+	item->y = y;
 	item->highlight = 1;
 	item->focused = 1;
 	widget_schedule_redraw(widget);
@@ -1243,6 +1250,79 @@ list_item_show_menu(struct list_item *item, struct input *input, uint32_t time)
 				list_item_menu_func, entries, MENU_ENTRIES);
 }
 
+static int
+rect_contains_point(struct rectangle rect, int x, int y)
+{
+	int x1, y1, x2, y2;
+
+	x1 = rect.x;
+	y1 = rect.y;
+	x2 = rect.x + rect.width;
+	y2 = rect.y + rect.height;
+
+	if (x > x1 && x < x2 && y > y1 && y < y2)
+		return 1;
+
+	return 0;
+}
+
+static int
+item_contains_point(struct list_item *item, int x, int y)
+{
+	struct rectangle item_rect;
+
+	widget_get_allocation(item->widget, &item_rect);
+
+	return rect_contains_point(item_rect, x, y);
+}
+
+static int
+list_contains_point(struct list_item *item, int x, int y)
+{
+	struct rectangle list_rect;
+
+	list_rect = item->panel->window_list_rect;
+
+	return rect_contains_point(list_rect, x, y);
+}
+
+static void
+panel_item_list_reorder(struct panel *panel,
+			struct list_item *current, struct list_item *item)
+{
+	struct rectangle current_rect, item_rect;
+
+	if (current == item)
+		return;
+
+	widget_get_allocation(current->widget, &current_rect);
+	widget_get_allocation(item->widget, &item_rect);
+
+	wl_list_remove(&current->link);
+
+	if (item_rect.x < current_rect.x)
+		wl_list_insert(item->link.prev, &current->link);
+	else
+		wl_list_insert(&item->link, &current->link);
+
+	panel_window_list_schedule_redraw(item->panel);
+}
+
+static void
+list_item_move(struct list_item *current, int x, int y)
+{
+	struct list_item *item;
+
+	wl_list_for_each(item, &current->panel->window_list, link) {
+		if (item == current)
+			continue;
+		if (item_contains_point(item, x, y)) {
+			panel_item_list_reorder(item->panel, current, item);
+			return;
+		}
+	}
+}
+
 static void
 panel_list_item_button_handler(struct widget *widget,
 			      struct input *input, uint32_t time,
@@ -1267,6 +1347,11 @@ panel_list_item_button_handler(struct widget *widget,
 		return;
 
 	surface = item->surface;
+	if (!item_contains_point(item, item->x, item->y)) {
+		if (list_contains_point(item, item->x, item->y))
+			list_item_move(item, item->x, item->y);
+		return;
+	}
 	if (!surface->focused && !surface->minimized) {
 		surface_data_focus(surface->surface_data);
 		surface->focused = 1;

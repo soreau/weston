@@ -1508,6 +1508,7 @@ surface_unminimize(struct shell_surface *shsurf, struct workspace *ws)
 	shell_surface_focus(shsurf);
 	send_surface_data_focused_state(surface);
 	shsurf->minimized = false;
+	shsurf->type = shsurf->saved_type;
 	wl_shell_surface_send_unminimize(&shsurf->resource);
 	weston_compositor_damage_all(compositor);
 }
@@ -1523,6 +1524,24 @@ shell_surface_unminimize(struct shell_surface *shsurf)
 			surface_unminimize(shsurf, ws);
 			return;
 		}
+}
+
+static void
+surface_data_maximize_handler(struct wl_client *client,
+				struct wl_resource *resource)
+{
+	struct shell_surface *shsurf = resource->data;
+
+	wl_shell_surface_send_maximize(&shsurf->resource);
+}
+
+static void
+surface_data_unmaximize_handler(struct wl_client *client,
+				struct wl_resource *resource)
+{
+	struct shell_surface *shsurf = resource->data;
+
+	wl_shell_surface_send_unmaximize(&shsurf->resource);
 }
 
 static void
@@ -1593,6 +1612,8 @@ surface_data_destroy_handler(struct wl_client *client,
 
 static const struct surface_data_interface
 					surface_data_implementation = {
+	surface_data_maximize_handler,
+	surface_data_unmaximize_handler,
 	surface_data_minimize_handler,
 	surface_data_unminimize_handler,
 	surface_data_focus_handler,
@@ -1791,6 +1812,7 @@ reset_shell_surface_type(struct shell_surface *surface)
 		weston_surface_set_position(surface->surface,
 					    surface->saved_x,
 					    surface->saved_y);
+		surface_data_send_maximized(surface->surface_data, 0);
 		break;
 	case SHELL_SURFACE_NONE:
 	case SHELL_SURFACE_TOPLEVEL:
@@ -1827,6 +1849,7 @@ set_surface_type(struct shell_surface *shsurf)
 		shsurf->saved_x = surface->geometry.x;
 		shsurf->saved_y = surface->geometry.y;
 		shsurf->saved_position_valid = true;
+		surface_data_send_maximized(shsurf->surface_data, 1);
 		break;
 
 	case SHELL_SURFACE_FULLSCREEN:

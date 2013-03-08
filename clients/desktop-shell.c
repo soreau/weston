@@ -70,7 +70,7 @@ struct surface {
 	struct desktop *desktop;
 	uint32_t output_mask;
 	char *title;
-	int minimized, focused;
+	int maximized, minimized, focused;
 
 	/* One window list item per panel of the surface's output_mask */
 	struct wl_list item_list;
@@ -1159,13 +1159,20 @@ static int
 panel_list_item_enter_handler(struct widget *widget, struct input *input,
 			     float x, float y, void *data)
 {
-	struct list_item *item = data;
+	struct list_item *item = data, *t_item;
 
 	item->x = x;
 	item->y = y;
 	item->highlight = 1;
 	item->focused = 1;
 	widget_schedule_redraw(widget);
+
+	wl_list_for_each(t_item, &item->panel->window_list, link) {
+		if(item == t_item)
+			continue;
+		t_item->highlight = 0;
+		t_item->focused = 0;
+	}
 
 	return CURSOR_LEFT_PTR;
 }
@@ -1201,7 +1208,17 @@ list_item_menu_handle_button(struct list_item *item, int index)
 			surface->minimized = 1;
 		}
 		break;
-	case 1: /* Close */
+	case 1: /* (Un)Maximize */
+		if (surface->maximized) {
+			surface_data_unmaximize(surface->surface_data);
+			surface->maximized = 0;
+		}
+		else {
+			surface_data_maximize(surface->surface_data);
+			surface->maximized = 1;
+		}
+		break;
+	case 2: /* Close */
 		surface_data_close(surface->surface_data);
 		break;
 	default:
@@ -1231,7 +1248,7 @@ list_item_menu_func(struct window *window, int index, void *data)
 		}
 }
 
-#define MENU_ENTRIES 2
+#define MENU_ENTRIES 3
 
 static void
 list_item_show_menu(struct list_item *item, struct input *input, uint32_t time)
@@ -1241,7 +1258,8 @@ list_item_show_menu(struct list_item *item, struct input *input, uint32_t time)
 	static const char *entries[MENU_ENTRIES];
 
 	entries[0] = item->surface->minimized ? "Unminimize" : "Minimize";
-	entries[1] = "Close";
+	entries[1] = item->surface->maximized ? "Unmaximize" : "Maximize";
+	entries[2] = "Close";
 
 	panel = item->panel;
 	input_get_position(input, &x, &y);
@@ -1503,6 +1521,21 @@ surface_data_set_title(void *data,
 }
 
 static void
+surface_data_set_maximized_state(void *data,
+				struct surface_data *surface_data,
+				int maximized)
+{
+	struct desktop *desktop;
+	struct surface *surface = data;
+
+	desktop = surface->desktop;
+
+	surface->maximized = maximized;
+
+	desktop_update_list_items(desktop, surface);
+}
+
+static void
 surface_data_set_minimized_state(void *data,
 				struct surface_data *surface_data,
 				int minimized)
@@ -1568,6 +1601,7 @@ surface_data_destroy_handler(void *data, struct surface_data *surface_data)
 static const struct surface_data_listener surface_data_listener = {
 	surface_data_set_output_mask,
 	surface_data_set_title,
+	surface_data_set_maximized_state,
 	surface_data_set_minimized_state,
 	surface_data_set_focused_state,
 	surface_data_destroy_handler

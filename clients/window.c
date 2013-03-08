@@ -3317,11 +3317,17 @@ handle_popup_done(void *data, struct wl_shell_surface *shell_surface)
 static void
 handle_maximize(void *data, struct wl_shell_surface *shell_surface)
 {
+	struct window *window = data;
+
+	window_set_maximized(window, 1);
 }
 
 static void
 handle_unmaximize(void *data, struct wl_shell_surface *shell_surface)
 {
+	struct window *window = data;
+
+	window_set_maximized(window, 0);
 }
 
 static void

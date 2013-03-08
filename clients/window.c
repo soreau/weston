@@ -3313,10 +3313,34 @@ handle_popup_done(void *data, struct wl_shell_surface *shell_surface)
 	menu_destroy(menu);
 }
 
+static void
+handle_maximize(void *data, struct wl_shell_surface *shell_surface)
+{
+}
+
+static void
+handle_unmaximize(void *data, struct wl_shell_surface *shell_surface)
+{
+}
+
+static void
+handle_minimize(void *data, struct wl_shell_surface *shell_surface)
+{
+}
+
+static void
+handle_unminimize(void *data, struct wl_shell_surface *shell_surface)
+{
+}
+
 static const struct wl_shell_surface_listener shell_surface_listener = {
 	handle_ping,
 	handle_configure,
-	handle_popup_done
+	handle_popup_done,
+	handle_maximize,
+	handle_unmaximize,
+	handle_minimize,
+	handle_unminimize
 };
 
 void

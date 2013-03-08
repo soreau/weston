@@ -1957,6 +1957,12 @@ shell_surface_set_maximized(struct wl_client *client,
 }
 
 static void
+shell_surface_set_minimized(struct wl_client *client,
+			    struct wl_resource *resource)
+{
+}
+
+static void
 black_surface_configure(struct weston_surface *es, int32_t sx, int32_t sy, int32_t width, int32_t height);
 
 static struct weston_surface *
@@ -2275,7 +2281,8 @@ static const struct wl_shell_surface_interface shell_surface_implementation = {
 	shell_surface_set_popup,
 	shell_surface_set_maximized,
 	shell_surface_set_title,
-	shell_surface_set_class
+	shell_surface_set_class,
+	shell_surface_set_minimized
 };
 
 static void

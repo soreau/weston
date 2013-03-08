@@ -87,6 +87,12 @@
 	The shell can use this interface to receive surface information or make
 	requests for this surface.
     </description>
+    <request name="maximize">
+      <description summary="ask the compositor to maximize the surface"/>
+    </request>
+    <request name="unmaximize">
+      <description summary="ask the compositor to unmaximize the surface"/>
+    </request>
     <request name="minimize">
       <description summary="ask the compositor to minimize the surface"/>
     </request>
@@ -112,6 +118,10 @@
     <event name="title">
       <description summary="send the surface object title to the shell"/>
       <arg name="title" type="string"/>
+    </event>
+    <event name="maximized">
+      <description summary="send the surface object maximize state to the shell"/>
+      <arg name="maximized" type="int"/>
     </event>
     <event name="minimized">
       <description summary="send the surface object minimize state to the shell"/>

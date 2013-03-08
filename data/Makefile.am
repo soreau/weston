@@ -7,6 +7,7 @@ dist_westondata_DATA =				\
 	terminal.png				\
 	border.png				\
 	icon_window.png				\
+	list_item_icon.png			\
 	sign_close.png				\
 	sign_maximize.png			\
 	sign_minimize.png

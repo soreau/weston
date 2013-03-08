@@ -44,6 +44,8 @@
 
 #include "desktop-shell-client-protocol.h"
 
+#define MIN(x, y) (((x) < (y)) ? (x) : (y))
+
 extern char **environ; /* defined by libc */
 
 struct desktop {
@@ -51,31 +53,55 @@ struct desktop {
 	struct desktop_shell *shell;
 	struct unlock_dialog *unlock_dialog;
 	struct task unlock_task;
+	struct wl_list surfaces;
 	struct wl_list outputs;
+	uint32_t output_count;
 
 	struct window *grab_window;
 	struct widget *grab_widget;
 
 	enum cursor_type grab_cursor;
+
+	struct surface_data_manager *surface_data_manager;
 };
 
 struct surface {
+	struct surface_data *surface_data;
+	struct desktop *desktop;
+	uint32_t output_mask;
+	char *title;
+
+	/* One window list item per panel of the surface's output_mask */
+	struct wl_list item_list;
+
+	struct wl_list link;
+};
+
+struct resize {
 	void (*configure)(void *data,
 			  struct desktop_shell *desktop_shell,
 			  uint32_t edges, struct window *window,
 			  int32_t width, int32_t height);
 };
 
+struct rgba {
+	float r, g, b, a;
+};
+
 struct panel {
-	struct surface base;
+	struct resize base;
 	struct window *window;
 	struct widget *widget;
 	struct wl_list launcher_list;
+	struct wl_list window_list;
+	struct rectangle window_list_rect;
+	uint32_t surface_count;
+	struct rgba focused_item;
 	struct panel_clock *clock;
 };
 
 struct background {
-	struct surface base;
+	struct resize base;
 	struct window *window;
 	struct widget *widget;
 };
@@ -83,9 +109,20 @@ struct background {
 struct output {
 	struct wl_output *output;
 	struct wl_list link;
+	uint32_t id;
 
 	struct panel *panel;
 	struct background *background;
+};
+
+struct list_item {
+	struct surface *surface;
+	struct widget *widget;
+	struct panel *panel;
+	cairo_surface_t *icon;
+	int focused, highlight;
+	struct wl_list link;
+	struct wl_list surface_link;
 };
 
 struct panel_launcher {
@@ -246,6 +283,15 @@ set_hex_color(cairo_t *cr, uint32_t color)
 			      ((color >>  8) & 0xff) / 255.0,
 			      ((color >>  0) & 0xff) / 255.0,
 			      ((color >> 24) & 0xff) / 255.0);
+}
+
+static void
+get_hex_color_rgba(uint32_t color, float *r, float *g, float *b, float *a)
+{
+	*r = ((color >> 16) & 0xff) / 255.0;
+	*g = ((color >>  8) & 0xff) / 255.0;
+	*b = ((color >>  0) & 0xff) / 255.0;
+	*a = ((color >> 24) & 0xff) / 255.0;
 }
 
 static void
@@ -421,15 +467,46 @@ panel_button_handler(struct widget *widget,
 }
 
 static void
+panel_window_list_schedule_redraw(struct panel *panel)
+{
+	struct list_item *item;
+	int item_width, padding, x, w;
+
+	/* If there are no window list items, redraw the panel to clear it */
+	if (wl_list_empty(&panel->window_list)) {
+		widget_schedule_redraw(panel->widget);
+		return;
+	}
+
+	item_width = (panel->window_list_rect.width / panel->surface_count);
+	padding = 2;
+
+	x = panel->window_list_rect.x + padding;
+	w = MIN(item_width - padding, 200);
+
+	wl_list_for_each(item, &panel->window_list, link) {
+		widget_set_allocation(item->widget, x, 4, w, 24);
+
+		x += w + padding;
+		widget_schedule_redraw(item->widget);
+	}
+}
+
+static void
 panel_resize_handler(struct widget *widget,
 		     int32_t width, int32_t height, void *data)
 {
 	struct panel_launcher *launcher;
+	struct rectangle launcher_rect;
+	struct rectangle clock_rect;
 	struct panel *panel = data;
 	int x, y, w, h;
-	
+
 	x = 10;
 	y = 16;
+
+	launcher_rect.x = x;
+
 	wl_list_for_each(launcher, &panel->launcher_list, link) {
 		w = cairo_image_surface_get_width(launcher->icon);
 		h = cairo_image_surface_get_height(launcher->icon);
@@ -437,12 +514,25 @@ panel_resize_handler(struct widget *widget,
 				      x, y - h / 2, w + 1, h + 1);
 		x += w + 10;
 	}
-	h=20;
+
+	launcher_rect.width = x - launcher_rect.x;
+
 	w=170;
+	h=20;
 
 	if (panel->clock)
 		widget_set_allocation(panel->clock->widget,
-				      width - w - 8, y - h / 2, w + 1, h + 1);
+				      width - w - 8, 4, w, 24);
+
+	widget_get_allocation(panel->clock->widget, &clock_rect);
+
+	panel->window_list_rect.x = launcher_rect.x + launcher_rect.width;
+	panel->window_list_rect.y = 2;
+	panel->window_list_rect.width = width -
+					panel->window_list_rect.x -
+					(clock_rect.width + 20);
+	panel->window_list_rect.height = 28;
+	panel_window_list_schedule_redraw(panel);
 }
 
 static void
@@ -451,8 +541,8 @@ panel_configure(void *data,
 		uint32_t edges, struct window *window,
 		int32_t width, int32_t height)
 {
-	struct surface *surface = window_get_user_data(window);
-	struct panel *panel = container_of(surface, struct panel, base);
+	struct resize *resize = window_get_user_data(window);
+	struct panel *panel = container_of(resize, struct panel, base);
 
 	window_schedule_resize(panel->window, width, 32);
 }
@@ -490,6 +580,22 @@ panel_destroy(struct panel *panel)
 	free(panel);
 }
 
+static void
+panel_set_list_item_focus_color(struct panel *panel)
+{
+	float r, g, b, a;
+
+	/* Consider panel color when choosing item highlight color */
+	get_hex_color_rgba(key_panel_color, &r, &b, &g, &a);
+	r += 0.2;
+	g += 0.2;
+	b += 0.2;
+	panel->focused_item.r = r > 1.0 ? 0.6 : r;
+	panel->focused_item.g = g > 1.0 ? 0.6 : g;
+	panel->focused_item.b = b > 1.0 ? 0.6 : b;
+	panel->focused_item.a = 0.75;
+}
+
 static struct panel *
 panel_create(struct display *display)
 {
@@ -502,6 +608,7 @@ panel_create(struct display *display)
 	panel->window = window_create_custom(display);
 	panel->widget = window_add_widget(panel->window, panel);
 	wl_list_init(&panel->launcher_list);
+	wl_list_init(&panel->window_list);
 
 	window_set_title(panel->window, "panel");
 	window_set_user_data(panel->window, panel);
@@ -509,7 +616,9 @@ panel_create(struct display *display)
 	widget_set_redraw_handler(panel->widget, panel_redraw_handler);
 	widget_set_resize_handler(panel->widget, panel_resize_handler);
 	widget_set_button_handler(panel->widget, panel_button_handler);
-	
+
+	panel->surface_count = 0;
+	panel_set_list_item_focus_color(panel);
 	panel_add_clock(panel);
 
 	return panel;
@@ -518,18 +627,17 @@ panel_create(struct display *display)
 static cairo_surface_t *
 load_icon_or_fallback(const char *icon)
 {
-	cairo_surface_t *surface = cairo_image_surface_create_from_png(icon);
+	cairo_surface_t *surface = load_cairo_surface(icon);
 	cairo_t *cr;
 
-	if (cairo_surface_status(surface) == CAIRO_STATUS_SUCCESS)
+	if (surface)
 		return surface;
 
 	cairo_surface_destroy(surface);
 	fprintf(stderr, "ERROR loading icon from file '%s'\n", icon);
 
 	/* draw fallback icon */
-	surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
-					     20, 20);
+	surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 20, 20);
 	cr = cairo_create(surface);
 
 	cairo_set_source_rgba(cr, 0.8, 0.8, 0.8, 1);
@@ -862,9 +970,9 @@ desktop_shell_configure(void *data,
 			int32_t width, int32_t height)
 {
 	struct window *window = wl_surface_get_user_data(surface);
-	struct surface *s = window_get_user_data(window);
+	struct resize *r = window_get_user_data(window);
 
-	s->configure(data, desktop_shell, edges, window, width, height);
+	r->configure(data, desktop_shell, edges, window, width, height);
 }
 
 static void
@@ -946,6 +1054,328 @@ background_destroy(struct background *background)
 	free(background);
 }
 
+static void
+panel_list_item_redraw_handler(struct widget *widget, void *data)
+{
+	cairo_t *cr;
+	cairo_surface_t *surface;
+	struct list_item *item = data;
+	struct rectangle rect;
+	cairo_text_extents_t extents;
+	cairo_font_extents_t font_extents;
+	int icon_width, icon_height;
+	unsigned int dots;
+	double padding;
+	char title[128];
+
+	widget_get_allocation(widget, &rect);
+	if (rect.width == 0)
+		return;
+
+	surface = window_get_surface(item->panel->window);
+	cr = cairo_create(surface);
+
+	if (item->focused) {
+		cairo_set_source_rgba(cr, item->panel->focused_item.r,
+					  item->panel->focused_item.g,
+					  item->panel->focused_item.b,
+					  item->panel->focused_item.a);
+		cairo_rectangle(cr, rect.x, rect.y, rect.width, rect.height);
+		cairo_fill(cr);
+	}
+
+	icon_width = cairo_image_surface_get_width(item->icon);
+	icon_height = cairo_image_surface_get_height(item->icon);
+	padding = (rect.height / 2.f) - (icon_height / 2.f);
+	if (rect.width > icon_width * 2) {
+		cairo_set_source_surface(cr, item->icon,
+					 rect.x + padding,
+					 rect.y + padding);
+		cairo_paint(cr);
+	} else {
+		icon_width = 0;
+		icon_height = 0;
+		padding = 1;
+	}
+
+	strcpy(title, item->surface->title);
+	cairo_select_font_face(cr, "sans",
+			       CAIRO_FONT_SLANT_NORMAL,
+			       CAIRO_FONT_WEIGHT_NORMAL);
+	cairo_set_font_size(cr, 14);
+	cairo_text_extents(cr, title, &extents);
+
+	/* If the string is too long, clip text to button width */
+	while (extents.width > (rect.width - (icon_width + padding * 3))) {
+		title[strlen(title) - 1] = '\0';
+		cairo_text_extents(cr, title, &extents);
+		if (extents.width <= 0) {
+			title[0] = '\0';
+			break;
+		}
+	}
+
+	/* If the text is clipped, add an ellipsis */
+	dots = 3;
+	if (strlen(title) < dots)
+		dots = strlen(title) + 1;
+	if (strlen(title) != strlen(item->surface->title))
+		while (dots-- > 0)
+			title[strlen(title) - dots] = '.';
+
+	cairo_font_extents (cr, &font_extents);
+	cairo_move_to(cr, rect.x + icon_width + padding * 3 + 1,
+		      rect.y + 3 * (rect.height >> 2) + 1);
+	cairo_set_source_rgb(cr, 0, 0, 0);
+	cairo_show_text(cr, title);
+	cairo_move_to(cr, rect.x + icon_width + padding * 3,
+		      rect.y + 3 * (rect.height >> 2));
+	if (item->highlight)
+		cairo_set_source_rgb(cr, 1, 1, 1);
+	else
+		cairo_set_source_rgb(cr, 0.85, 0.85, 0.85);
+	cairo_show_text(cr, title);
+	cairo_destroy(cr);
+}
+
+static int
+panel_list_item_motion_handler(struct widget *widget, struct input *input,
+			      uint32_t time, float x, float y, void *data)
+{
+	struct list_item *item = data;
+
+	widget_set_tooltip(widget, basename((char *)item->surface->title), x, y);
+
+	return CURSOR_LEFT_PTR;
+}
+
+static int
+panel_list_item_enter_handler(struct widget *widget, struct input *input,
+			     float x, float y, void *data)
+{
+	struct list_item *item = data;
+
+	item->highlight = 1;
+	widget_schedule_redraw(widget);
+
+	return CURSOR_LEFT_PTR;
+}
+
+static void
+panel_list_item_leave_handler(struct widget *widget,
+			     struct input *input, void *data)
+{
+	struct list_item *item = data;
+
+	item->highlight = 0;
+	widget_destroy_tooltip(widget);
+	widget_schedule_redraw(widget);
+}
+
+static void
+panel_list_item_button_handler(struct widget *widget,
+			      struct input *input, uint32_t time,
+			      uint32_t button,
+			      enum wl_pointer_button_state state, void *data)
+{
+	widget_schedule_redraw(widget);
+	/* TODO: Toggle minimize */
+}
+
+static struct list_item *
+panel_list_item_add(struct panel *panel, const char *icon, const char *text)
+{
+	struct list_item *item;
+	item = malloc(sizeof *item);
+	memset(item, 0, sizeof *item);
+
+	item->icon = load_icon_or_fallback(icon);
+
+	item->panel = panel;
+	wl_list_insert(panel->window_list.prev, &item->link);
+	panel->surface_count++;
+
+	item->widget = widget_add_widget(panel->widget, item);
+	widget_set_enter_handler(item->widget, panel_list_item_enter_handler);
+	widget_set_leave_handler(item->widget, panel_list_item_leave_handler);
+	widget_set_button_handler(item->widget, panel_list_item_button_handler);
+	widget_set_redraw_handler(item->widget, panel_list_item_redraw_handler);
+	widget_set_motion_handler(item->widget, panel_list_item_motion_handler);
+
+	return item;
+}
+
+static void
+panel_list_item_remove(struct list_item *item)
+{
+	item->panel->surface_count--;
+	wl_list_remove(&item->link);
+	wl_list_remove(&item->surface_link);
+	widget_destroy(item->widget);
+	panel_window_list_schedule_redraw(item->panel);
+	cairo_surface_destroy(item->icon);
+	free(item);
+}
+
+static int
+panel_list_item_exists(struct panel *panel, struct surface *surface)
+{
+	struct list_item *p_item, *s_item;
+
+	wl_list_for_each(p_item, &panel->window_list, link) {
+		wl_list_for_each(s_item, &surface->item_list, surface_link) {
+			if (p_item == s_item)
+				return 1;
+		}
+	}
+
+	return 0;
+}
+
+static void
+output_update_window_list(struct output *output, struct surface *surface)
+{
+	struct list_item *item, *next;
+	struct panel *panel;
+
+	panel = output->panel;
+
+	/* Make a list item for each panel of the surfaces output mask */
+	if ((1 << output->id) & surface->output_mask) {
+		if (!panel_list_item_exists(panel, surface)) {
+			item = panel_list_item_add(panel,
+					DATADIR "/weston/list_item_icon.png",
+					surface->title);
+			wl_list_insert(surface->item_list.prev,
+							&item->surface_link);
+			item->surface = surface;
+		}
+	} else {
+		/* Remove item from panel if surface
+		 * is no longer on the output */
+		wl_list_for_each_safe(item, next, &surface->item_list,
+								surface_link) {
+			if (item->panel == panel)
+				panel_list_item_remove(item);
+		}
+	}
+
+	panel_window_list_schedule_redraw(panel);
+}
+
+static void
+desktop_destroy_surface(struct surface *surface)
+{
+	struct list_item *item, *next;
+
+	wl_list_for_each_safe(item, next, &surface->item_list, surface_link)
+		panel_list_item_remove(item);
+
+	wl_list_remove(&surface->link);
+	free(surface->title);
+	free(surface);
+}
+
+static void
+desktop_update_list_items(struct desktop *desktop, struct surface *surface)
+{
+	struct output *output;
+
+	wl_list_for_each(output, &desktop->outputs, link)
+		output_update_window_list(output, surface);
+}
+
+static void
+surface_data_set_output_mask(void *data,
+				struct surface_data *surface_data,
+				uint32_t output_mask)
+{
+	struct desktop *desktop;
+	struct surface *surface = data;
+
+	desktop = surface->desktop;
+
+	surface->output_mask = output_mask;
+
+	desktop_update_list_items(desktop, surface);
+}
+
+static void
+surface_data_set_title(void *data,
+				struct surface_data *surface_data,
+				const char *title)
+{
+	struct desktop *desktop;
+	struct surface *surface = data;
+
+	desktop = surface->desktop;
+
+	if (surface->title)
+		free(surface->title);
+	surface->title = strdup(title);
+
+	desktop_update_list_items(desktop, surface);
+}
+
+static void
+surface_data_destroy_handler(void *data, struct surface_data *surface_data)
+{
+	struct list_item *item, *next;
+	struct desktop *desktop;
+	struct surface *surface = data;
+	struct output *output;
+	struct panel *panel;
+
+	desktop = surface->desktop;
+
+	surface_data_destroy(surface_data);
+
+	wl_list_for_each(output, &desktop->outputs, link) {
+		panel = output->panel;
+		wl_list_for_each_safe(item, next, &panel->window_list, link) {
+			if (surface_data == item->surface->surface_data) {
+				desktop_destroy_surface(item->surface);
+				return;
+			}
+		}
+	}
+}
+
+static const struct surface_data_listener surface_data_listener = {
+	surface_data_set_output_mask,
+	surface_data_set_title,
+	surface_data_destroy_handler
+};
+
+static void
+surface_data_receive_surface_object(void *data,
+				struct surface_data_manager *manager,
+				struct surface_data *surface_data)
+{
+	struct desktop *desktop = data;
+	struct surface *surface;
+
+	surface = calloc(1, sizeof *surface);
+
+	if (!surface) {
+		fprintf(stderr, "ERROR: Failed to allocate memory!\n");
+		exit(EXIT_FAILURE);
+	}
+
+	surface->surface_data = surface_data;
+	surface->desktop = desktop;
+	surface->title = strdup("unknown");
+	surface->output_mask = 1;
+	wl_list_init(&surface->item_list);
+	wl_list_insert(&desktop->surfaces, &surface->link);
+	surface_data_add_listener(surface_data,
+				   &surface_data_listener, surface);
+}
+
+static const struct surface_data_manager_listener surface_data_manager_listener = {
+	surface_data_receive_surface_object
+};
+
 static struct background *
 background_create(struct desktop *desktop)
 {
@@ -1022,6 +1452,15 @@ desktop_destroy_outputs(struct desktop *desktop)
 }
 
 static void
+desktop_destroy_surfaces(struct desktop *desktop)
+{
+	struct surface *surface, *next;
+
+	wl_list_for_each_safe(surface, next, &desktop->surfaces, link)
+		desktop_destroy_surface(surface);
+}
+
+static void
 create_output(struct desktop *desktop, uint32_t id)
 {
 	struct output *output;
@@ -1032,6 +1471,8 @@ create_output(struct desktop *desktop, uint32_t id)
 
 	output->output =
 		display_bind(desktop->display, id, &wl_output_interface, 1);
+
+	output->id = desktop->output_count++;
 
 	wl_list_insert(&desktop->outputs, &output->link);
 }
@@ -1048,6 +1489,12 @@ global_handler(struct display *display, uint32_t id,
 		desktop_shell_add_listener(desktop->shell, &listener, desktop);
 	} else if (!strcmp(interface, "wl_output")) {
 		create_output(desktop, id);
+	} else if (!strcmp(interface, "surface_data_manager")) {
+		desktop->surface_data_manager =
+				display_bind(display, id,
+					&surface_data_manager_interface, 1);
+		surface_data_manager_add_listener(desktop->surface_data_manager,
+					&surface_data_manager_listener, desktop);
 	}
 }
 
@@ -1100,6 +1547,9 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
+	wl_list_init(&desktop.surfaces);
+	desktop.output_count = 0;
+
 	display_set_user_data(desktop.display, &desktop);
 	display_set_global_handler(desktop.display, global_handler);
 
@@ -1133,6 +1583,7 @@ int main(int argc, char *argv[])
 
 	/* Cleanup */
 	grab_surface_destroy(&desktop);
+	desktop_destroy_surfaces(&desktop);
 	desktop_destroy_outputs(&desktop);
 	if (desktop.unlock_dialog)
 		unlock_dialog_destroy(desktop.unlock_dialog);

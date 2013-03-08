@@ -509,6 +509,8 @@ weston_surface_update_output_mask(struct weston_surface *es, uint32_t mask)
 		if (1 << output->id & left)
 			wl_surface_send_leave(&es->surface.resource, resource);
 	}
+
+	wl_signal_emit(&es->compositor->output_mask_update_signal, es);
 }
 
 static void
@@ -3049,6 +3051,7 @@ weston_compositor_init(struct weston_compositor *ec,
 	wl_signal_init(&ec->wake_signal);
 	wl_signal_init(&ec->show_input_panel_signal);
 	wl_signal_init(&ec->hide_input_panel_signal);
+	wl_signal_init(&ec->output_mask_update_signal);
 	wl_signal_init(&ec->seat_created_signal);
 	ec->launcher_sock = weston_environment_get_fd("WESTON_LAUNCHER_SOCK");
 

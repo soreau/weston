@@ -67,6 +67,7 @@ struct workspace {
 	struct weston_layer layer;
 
 	struct wl_list focus_list;
+	struct wl_list minimized_list;
 	struct wl_listener seat_destroyed_listener;
 };
 
@@ -178,11 +179,12 @@ struct shell_surface {
 	struct weston_surface *parent;
 	struct desktop_shell *shell;
 
-	enum shell_surface_type type, next_type;
+	enum shell_surface_type type, next_type, saved_type;
 	char *title, *class;
 	int32_t saved_x, saved_y;
 	bool saved_position_valid;
 	bool saved_rotation_valid;
+	int minimized;
 	int unresponsive;
 
 	struct {
@@ -556,6 +558,7 @@ workspace_create(void)
 	weston_layer_init(&ws->layer, NULL);
 
 	wl_list_init(&ws->focus_list);
+	wl_list_init(&ws->minimized_list);
 	wl_list_init(&ws->seat_destroyed_listener.link);
 	ws->seat_destroyed_listener.notify = seat_destroyed;
 
@@ -1419,16 +1422,163 @@ shell_surface_pong(struct wl_client *client, struct wl_resource *resource,
 }
 
 static void
-surface_data_object_destroy(struct wl_resource *resource)
+send_surface_data_focused_state(struct weston_surface *surface);
+
+static void
+activate(struct desktop_shell *shell, struct weston_surface *es,
+	 struct weston_seat *seat);
+
+static void
+shell_surface_focus(struct shell_surface *shsurf)
+{
+	struct desktop_shell *shell;
+	struct weston_compositor *compositor;
+	struct weston_surface *surface;
+	struct weston_seat *seat;
+
+	shell = shsurf->shell;
+	compositor = shell->compositor;
+	surface = shsurf->surface;
+
+	wl_list_for_each(seat, &surface->compositor->seat_list, link)
+		if (seat->seat.keyboard) {
+			wl_keyboard_set_focus(seat->seat.keyboard,
+							&surface->surface);
+			activate(shell, surface, seat);
+		}
+
+	weston_compositor_damage_all(compositor);
+}
+
+static void
+shell_surface_minimize(struct shell_surface *shsurf)
+{
+	struct desktop_shell *shell;
+	struct weston_compositor *compositor;
+	struct weston_surface *surface;
+	struct workspace *ws;
+	struct weston_seat *seat;
+	struct weston_surface *focus;
+
+	shell = shsurf->shell;
+	compositor = shell->compositor;
+	surface = shsurf->surface;
+	ws = get_current_workspace(shell);
+
+	wl_list_remove(&surface->layer_link);
+	wl_list_insert(ws->minimized_list.prev, &surface->layer_link);
+	shsurf->saved_type = shsurf->type;
+	shsurf->minimized = 1;
+
+	/* Focus next surface in stack */
+	wl_list_for_each(seat, &compositor->seat_list, link)
+		if (seat->seat.keyboard &&
+		    seat->keyboard.keyboard.focus == &surface->surface) {
+			if (!wl_list_empty(&ws->layer.surface_list)) {
+				focus = container_of(ws->layer.surface_list.next,
+							 struct weston_surface,
+							 layer_link);
+				shsurf = get_shell_surface(focus);
+				if (!shsurf)
+					break;
+				shell_surface_focus(shsurf);
+			} else
+				wl_keyboard_set_focus(seat->seat.keyboard, NULL);
+		}
+
+	send_surface_data_focused_state(surface);
+	weston_compositor_damage_all(compositor);
+}
+
+static void
+surface_unminimize(struct shell_surface *shsurf, struct workspace *ws)
+{
+	struct desktop_shell *shell;
+	struct weston_compositor *compositor;
+	struct weston_surface *surface;
+
+	shell = shsurf->shell;
+	compositor = shell->compositor;
+	surface = shsurf->surface;
+
+	wl_list_remove(&surface->layer_link);
+	wl_list_insert(ws->layer.surface_list.prev, &surface->layer_link);
+	shell_surface_focus(shsurf);
+	send_surface_data_focused_state(surface);
+	shsurf->minimized = false;
+	weston_compositor_damage_all(compositor);
+}
+
+static void
+shell_surface_unminimize(struct shell_surface *shsurf)
+{
+	struct weston_surface *surface;
+	struct workspace *ws = get_current_workspace(shsurf->shell);
+
+	wl_list_for_each(surface, &ws->minimized_list, layer_link)
+		if (surface == shsurf->surface) {
+			surface_unminimize(shsurf, ws);
+			return;
+		}
+}
+
+static void
+surface_data_minimize_handler(struct wl_client *client,
+				struct wl_resource *resource)
 {
 	struct shell_surface *shsurf = resource->data;
 
-	free(resource);
+	shell_surface_minimize(shsurf);
+}
 
-	if (!shsurf)
+static void
+surface_data_unminimize_handler(struct wl_client *client,
+				struct wl_resource *resource)
+{
+	struct shell_surface *shsurf = resource->data;
+
+	shell_surface_unminimize(shsurf);
+}
+
+static void
+surface_data_focus_handler(struct wl_client *client,
+				struct wl_resource *resource)
+{
+	struct shell_surface *shsurf = resource->data;
+
+	shell_surface_focus(shsurf);
+}
+
+static void
+surface_data_close_handler(struct wl_client *client,
+				struct wl_resource *resource)
+{
+	struct shell_surface *shsurf;
+	struct wl_surface *target_surface;
+	struct wl_client *target_client;
+	struct desktop_shell *shell;
+	struct weston_compositor *compositor;
+	pid_t pid;
+
+	shsurf = resource->data;
+	target_surface = &shsurf->surface->surface;
+	shell = shsurf->shell;
+	compositor = shell->compositor;
+
+	if (!target_surface)
 		return;
 
-	shsurf->surface_data = NULL;
+	wl_signal_emit(&compositor->kill_signal, target_surface);
+
+	target_client = target_surface->resource.client;
+	wl_client_get_credentials(target_client, &pid, NULL, NULL);
+
+	/* Skip clients that we launched ourselves (the credentials of
+	 * the socketpair is ours) */
+	if (pid == getpid())
+		return;
+
+	kill(pid, SIGTERM);
 }
 
 static void
@@ -1440,8 +1590,25 @@ surface_data_destroy_handler(struct wl_client *client,
 
 static const struct surface_data_interface
 					surface_data_implementation = {
+	surface_data_minimize_handler,
+	surface_data_unminimize_handler,
+	surface_data_focus_handler,
+	surface_data_close_handler,
 	surface_data_destroy_handler
 };
+
+static void
+surface_data_object_destroy(struct wl_resource *resource)
+{
+	struct shell_surface *shsurf = resource->data;
+
+	free(resource);
+
+	if (!shsurf)
+		return;
+
+	shsurf->surface_data = NULL;
+}
 
 static int
 create_surface_data(struct desktop_shell *shell, struct shell_surface *shsurf)
@@ -1520,6 +1687,34 @@ send_surface_data_title(struct weston_surface *surface)
 		surface_data_send_title(shsurf->surface_data,
 						shsurf->title == NULL ?
 						"Surface" : shsurf->title);
+}
+
+static void
+send_surface_data_minimized_state(struct weston_surface *surface)
+{
+	struct shell_surface *shsurf = get_shell_surface(surface);
+
+	if (shsurf && shsurf->surface_data)
+		surface_data_send_minimized(shsurf->surface_data,
+					shsurf->minimized ? 1 : 0);
+}
+
+static void
+send_surface_data_focused_state(struct weston_surface *surface)
+{
+	struct shell_surface *shsurf = get_shell_surface(surface);
+	struct focus_state *state;
+	struct workspace *ws;
+	bool focused = false;
+
+	if (shsurf && shsurf->surface_data) {
+		ws = get_current_workspace(shsurf->shell);
+		wl_list_for_each(state, &ws->focus_list, link)
+			if (state->keyboard_focus == shsurf->surface)
+				focused = true;
+		surface_data_send_focused(shsurf->surface_data,
+					focused);
+	}
 }
 
 static void
@@ -2531,6 +2726,14 @@ surface_data_send_all_info(struct desktop_shell *shell)
 	ws = get_current_workspace(shell);
 
 	wl_list_for_each(surface, &ws->layer.surface_list, layer_link) {
+		send_surface_data_minimized_state(surface);
+		send_surface_data_focused_state(surface);
+		send_surface_data_output_mask(surface);
+		send_surface_data_title(surface);
+	}
+	wl_list_for_each(surface, &ws->minimized_list, layer_link) {
+		send_surface_data_minimized_state(surface);
+		send_surface_data_focused_state(surface);
 		send_surface_data_output_mask(surface);
 		send_surface_data_title(surface);
 	}
@@ -2869,6 +3072,7 @@ activate(struct desktop_shell *shell, struct weston_surface *es,
 		return;
 
 	state->keyboard_focus = es;
+	send_surface_data_focused_state(es);
 	wl_list_remove(&state->surface_destroy_listener.link);
 	wl_signal_add(&es->surface.resource.destroy_signal,
 		      &state->surface_destroy_listener);

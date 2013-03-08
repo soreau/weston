@@ -302,6 +302,7 @@ struct weston_compositor {
 
 	struct wl_signal show_input_panel_signal;
 	struct wl_signal hide_input_panel_signal;
+	struct wl_signal output_mask_update_signal;
 
 	struct wl_signal seat_created_signal;
 

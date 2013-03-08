@@ -88,6 +88,7 @@ struct desktop_shell {
 	struct wl_listener destroy_listener;
 	struct wl_listener show_input_panel_listener;
 	struct wl_listener hide_input_panel_listener;
+	struct wl_listener output_mask_update_listener;
 
 	struct weston_layer fullscreen_layer;
 	struct weston_layer panel_layer;
@@ -106,6 +107,8 @@ struct desktop_shell {
 		unsigned deathcount;
 		uint32_t deathstamp;
 	} child;
+
+	struct wl_resource *surface_data_manager;
 
 	bool locked;
 	bool showing_input_panels;
@@ -216,6 +219,7 @@ struct shell_surface {
 	struct wl_list link;
 
 	const struct weston_shell_client *client;
+	struct wl_resource *surface_data;
 };
 
 struct shell_grab {
@@ -1415,6 +1419,110 @@ shell_surface_pong(struct wl_client *client, struct wl_resource *resource,
 }
 
 static void
+surface_data_object_destroy(struct wl_resource *resource)
+{
+	struct shell_surface *shsurf = resource->data;
+
+	free(resource);
+
+	if (!shsurf)
+		return;
+
+	shsurf->surface_data = NULL;
+}
+
+static void
+surface_data_destroy_handler(struct wl_client *client,
+					struct wl_resource *resource)
+{
+	wl_resource_destroy(resource);
+}
+
+static const struct surface_data_interface
+					surface_data_implementation = {
+	surface_data_destroy_handler
+};
+
+static int
+create_surface_data(struct desktop_shell *shell, struct shell_surface *shsurf)
+{
+	struct wl_resource *surface_data;
+
+	if (shsurf->surface_data)
+		return -1;
+
+	surface_data = malloc(sizeof *surface_data);
+	if (surface_data == NULL)
+		return -1;
+
+	surface_data->data = shsurf;
+	surface_data->object.id = 0;
+	surface_data->object.interface = &surface_data_interface;
+	surface_data->destroy = surface_data_object_destroy;
+	surface_data->object.implementation =
+			(void (**)(void)) &surface_data_implementation;
+	wl_signal_init(&surface_data->destroy_signal);
+
+	wl_client_add_resource(shell->surface_data_manager->client, surface_data);
+
+	shsurf->surface_data = surface_data;
+
+	surface_data_manager_send_surface_object(shell->surface_data_manager,
+					shsurf->surface_data);
+
+	return 0;
+}
+
+static bool
+surface_is_window_list_candidate(struct weston_surface *surface)
+{
+	struct desktop_shell *shell;
+	struct shell_surface *shsurf;
+
+	shsurf = get_shell_surface(surface);
+	if (!shsurf)
+		return false;
+
+	shell = shsurf->shell;
+
+	if (!shell->surface_data_manager)
+		return false;
+
+	switch (shsurf->type) {
+	default:
+	case SHELL_SURFACE_TRANSIENT:
+	case SHELL_SURFACE_POPUP:
+	case SHELL_SURFACE_NONE:
+		return false;
+	case SHELL_SURFACE_FULLSCREEN:
+	case SHELL_SURFACE_MAXIMIZED:
+	case SHELL_SURFACE_TOPLEVEL:
+		return true;
+	}
+}
+
+static void
+send_surface_data_output_mask(struct weston_surface *surface)
+{
+	struct shell_surface *shsurf = get_shell_surface(surface);
+
+	if (shsurf && shsurf->surface_data)
+		surface_data_send_output_mask(shsurf->surface_data,
+						surface->output_mask);
+}
+
+static void
+send_surface_data_title(struct weston_surface *surface)
+{
+	struct shell_surface *shsurf = get_shell_surface(surface);
+
+	if (shsurf && shsurf->surface_data)
+		surface_data_send_title(shsurf->surface_data,
+						shsurf->title == NULL ?
+						"Surface" : shsurf->title);
+}
+
+static void
 shell_surface_set_title(struct wl_client *client,
 			struct wl_resource *resource, const char *title)
 {
@@ -1422,6 +1530,7 @@ shell_surface_set_title(struct wl_client *client,
 
 	free(shsurf->title);
 	shsurf->title = strdup(title);
+	send_surface_data_title(shsurf->surface);
 }
 
 static void
@@ -1551,6 +1660,10 @@ set_surface_type(struct shell_surface *shsurf)
 	default:
 		break;
 	}
+
+	if (surface_is_window_list_candidate(shsurf->surface))
+		create_surface_data(shsurf->shell, shsurf);
+	send_surface_data_title(surface);
 }
 
 static void
@@ -1973,6 +2086,8 @@ static const struct wl_shell_surface_interface shell_surface_implementation = {
 static void
 destroy_shell_surface(struct shell_surface *shsurf)
 {
+	if (shsurf->surface_data)
+		surface_data_send_gone(shsurf->surface_data);
 	if (shsurf->popup.grab.pointer)
 		wl_pointer_end_grab(shsurf->popup.grab.pointer);
 
@@ -2378,6 +2493,37 @@ static const struct desktop_shell_interface desktop_shell_implementation = {
 	desktop_shell_unlock,
 	desktop_shell_set_grab_surface
 };
+
+static void
+surface_data_create_all_objects(struct desktop_shell *shell)
+{
+	struct weston_surface *surface;
+	struct shell_surface *shsurf;
+	struct workspace *ws;
+
+	ws = get_current_workspace(shell);
+
+	wl_list_for_each(surface, &ws->layer.surface_list, layer_link) {
+		if (surface_is_window_list_candidate(surface)) {
+			shsurf = get_shell_surface(surface);
+			create_surface_data(shell, shsurf);
+		}
+	}
+}
+
+static void
+surface_data_send_all_info(struct desktop_shell *shell)
+{
+	struct weston_surface *surface;
+	struct workspace *ws;
+
+	ws = get_current_workspace(shell);
+
+	wl_list_for_each(surface, &ws->layer.surface_list, layer_link) {
+		send_surface_data_output_mask(surface);
+		send_surface_data_title(surface);
+	}
+}
 
 static enum shell_surface_type
 get_shell_surface_type(struct weston_surface *surface)
@@ -2938,6 +3084,22 @@ show_input_panels(struct wl_listener *listener, void *data)
 }
 
 static void
+output_mask_update(struct wl_listener *listener, void *data)
+{
+	struct weston_surface *surface = data;
+	struct shell_surface *shsurf;
+
+	if (!surface)
+		return;
+
+	shsurf = get_shell_surface(surface);
+
+	if (shsurf && shsurf->surface_data)
+		surface_data_send_output_mask(shsurf->surface_data,
+						surface->output_mask);
+}
+
+static void
 hide_input_panels(struct wl_listener *listener, void *data)
 {
 	struct desktop_shell *shell =
@@ -3283,6 +3445,38 @@ bind_desktop_shell(struct wl_client *client,
 	if (client == shell->child.client) {
 		resource->destroy = unbind_desktop_shell;
 		shell->child.desktop_shell = resource;
+		return;
+	}
+
+	wl_resource_post_error(resource, WL_DISPLAY_ERROR_INVALID_OBJECT,
+			       "permission to bind desktop_shell denied");
+	wl_resource_destroy(resource);
+}
+
+static void
+unbind_surface_data_manager(struct wl_resource *resource)
+{
+	struct desktop_shell *shell = resource->data;
+
+	shell->surface_data_manager = NULL;
+	free(resource);
+}
+
+static void
+bind_surface_data_manager(struct wl_client *client,
+		   void *data, uint32_t version, uint32_t id)
+{
+	struct desktop_shell *shell = data;
+	struct wl_resource *resource;
+
+	resource = wl_client_add_object(client, &surface_data_manager_interface,
+					NULL, id, shell);
+
+	if (client == shell->child.client) {
+		resource->destroy = unbind_surface_data_manager;
+		shell->surface_data_manager = resource;
+		surface_data_create_all_objects(shell);
+		surface_data_send_all_info(shell);
 		return;
 	}
 
@@ -3966,6 +4160,7 @@ shell_destroy(struct wl_listener *listener, void *data)
 	wl_list_remove(&shell->wake_listener.link);
 	wl_list_remove(&shell->show_input_panel_listener.link);
 	wl_list_remove(&shell->hide_input_panel_listener.link);
+	wl_list_remove(&shell->output_mask_update_listener.link);
 
 	wl_array_for_each(ws, &shell->workspaces.array)
 		workspace_destroy(*ws);
@@ -4075,6 +4270,8 @@ module_init(struct weston_compositor *ec,
 	wl_signal_add(&ec->show_input_panel_signal, &shell->show_input_panel_listener);
 	shell->hide_input_panel_listener.notify = hide_input_panels;
 	wl_signal_add(&ec->hide_input_panel_signal, &shell->hide_input_panel_listener);
+	shell->output_mask_update_listener.notify = output_mask_update;
+	wl_signal_add(&ec->output_mask_update_signal, &shell->output_mask_update_listener);
 	ec->ping_handler = ping_handler;
 	ec->shell_interface.shell = shell;
 	ec->shell_interface.create_shell_surface = create_shell_surface;
@@ -4132,6 +4329,10 @@ module_init(struct weston_compositor *ec,
 	if (wl_display_add_global(ec->wl_display, &workspace_manager_interface,
 				  shell, bind_workspace_manager) == NULL)
 		return -1;
+	if (wl_display_add_global(ec->wl_display, &surface_data_manager_interface,
+				  shell, bind_surface_data_manager) == NULL)
+		return -1;
+
 
 	shell->child.deathstamp = weston_compositor_get_time();
 

@@ -70,6 +70,7 @@ struct surface {
 	struct desktop *desktop;
 	uint32_t output_mask;
 	char *title;
+	int minimized, focused;
 
 	/* One window list item per panel of the surface's output_mask */
 	struct wl_list item_list;
@@ -193,13 +194,13 @@ sigchild_handler(int s)
 }
 
 static void
-menu_func(struct window *window, int index, void *data)
+panel_menu_func(struct window *window, int index, void *data)
 {
 	printf("Selected index %d from a panel menu.\n", index);
 }
 
 static void
-show_menu(struct panel *panel, struct input *input, uint32_t time)
+panel_show_menu(struct panel *panel, struct input *input, uint32_t time)
 {
 	int32_t x, y;
 	static const char *entries[] = {
@@ -209,7 +210,7 @@ show_menu(struct panel *panel, struct input *input, uint32_t time)
 	input_get_position(input, &x, &y);
 	window_show_menu(window_get_display(panel->window),
 			 input, time, panel->window,
-			 x - 10, y - 10, menu_func, entries, 4);
+			 x - 10, y - 10, panel_menu_func, entries, 4);
 }
 
 static void
@@ -463,7 +464,7 @@ panel_button_handler(struct widget *widget,
 	struct panel *panel = data;
 
 	if (button == BTN_RIGHT && state == WL_POINTER_BUTTON_STATE_PRESSED)
-		show_menu(panel, input, time);
+		panel_show_menu(panel, input, time);
 }
 
 static void
@@ -1075,7 +1076,7 @@ panel_list_item_redraw_handler(struct widget *widget, void *data)
 	surface = window_get_surface(item->panel->window);
 	cr = cairo_create(surface);
 
-	if (item->focused) {
+	if (item->focused || item->surface->focused) {
 		cairo_set_source_rgba(cr, item->panel->focused_item.r,
 					  item->panel->focused_item.g,
 					  item->panel->focused_item.b,
@@ -1156,6 +1157,7 @@ panel_list_item_enter_handler(struct widget *widget, struct input *input,
 	struct list_item *item = data;
 
 	item->highlight = 1;
+	item->focused = 1;
 	widget_schedule_redraw(widget);
 
 	return CURSOR_LEFT_PTR;
@@ -1168,8 +1170,77 @@ panel_list_item_leave_handler(struct widget *widget,
 	struct list_item *item = data;
 
 	item->highlight = 0;
+	item->focused = 0;
 	widget_destroy_tooltip(widget);
 	widget_schedule_redraw(widget);
+}
+
+static void
+desktop_update_list_items(struct desktop *desktop, struct surface *surface);
+
+static void
+list_item_menu_handle_button(struct list_item *item, int index)
+{
+	struct surface *surface = item->surface;
+
+	switch (index) {
+	case 0: /* (Un)Minimize */
+		if (surface->minimized) {
+			surface_data_unminimize(surface->surface_data);
+			surface->minimized = 0;
+		}
+		else {
+			surface_data_minimize(surface->surface_data);
+			surface->minimized = 1;
+		}
+		break;
+	case 1: /* Close */
+		surface_data_close(surface->surface_data);
+		break;
+	default:
+		item->highlight = 0;
+		break;
+	}
+
+	item->focused = 0;
+
+	desktop_update_list_items(surface->desktop, surface);
+	widget_destroy_tooltip(item->widget);
+	widget_schedule_redraw(item->widget);
+}
+
+static void
+list_item_menu_func(struct window *window, int index, void *data)
+{
+	struct list_item *item;
+	struct panel *panel;
+
+	panel = data;
+
+	wl_list_for_each(item, &panel->window_list, link)
+		if (item->focused) {
+			list_item_menu_handle_button(item, index);
+			return;
+		}
+}
+
+#define MENU_ENTRIES 2
+
+static void
+list_item_show_menu(struct list_item *item, struct input *input, uint32_t time)
+{
+	struct panel *panel;
+	int32_t x, y;
+	static const char *entries[MENU_ENTRIES];
+
+	entries[0] = item->surface->minimized ? "Unminimize" : "Minimize";
+	entries[1] = "Close";
+
+	panel = item->panel;
+	input_get_position(input, &x, &y);
+	window_show_menu(window_get_display(panel->window), input,
+				time, panel->window, x - 10, y - 10,
+				list_item_menu_func, entries, MENU_ENTRIES);
 }
 
 static void
@@ -1178,8 +1249,37 @@ panel_list_item_button_handler(struct widget *widget,
 			      uint32_t button,
 			      enum wl_pointer_button_state state, void *data)
 {
+	struct list_item *item;
+	struct surface *surface;
+
+	item = data;
+
 	widget_schedule_redraw(widget);
-	/* TODO: Toggle minimize */
+
+	if (button == BTN_RIGHT && state == WL_POINTER_BUTTON_STATE_PRESSED) {
+		widget_destroy_tooltip(item->widget);
+		widget_schedule_redraw(item->widget);
+		list_item_show_menu(item, input, time);
+		return;
+	}
+
+	if ((button != BTN_LEFT) || (state != WL_POINTER_BUTTON_STATE_RELEASED))
+		return;
+
+	surface = item->surface;
+	if (!surface->focused && !surface->minimized) {
+		surface_data_focus(surface->surface_data);
+		surface->focused = 1;
+		return;
+	}
+	if (surface->minimized) {
+		surface_data_unminimize(surface->surface_data);
+		surface->minimized = 0;
+	}
+	else {
+		surface_data_minimize(surface->surface_data);
+		surface->minimized = 1;
+	}
 }
 
 static struct list_item *
@@ -1318,6 +1418,45 @@ surface_data_set_title(void *data,
 }
 
 static void
+surface_data_set_minimized_state(void *data,
+				struct surface_data *surface_data,
+				int minimized)
+{
+	struct desktop *desktop;
+	struct surface *surface = data;
+
+	desktop = surface->desktop;
+
+	surface->minimized = minimized;
+
+	desktop_update_list_items(desktop, surface);
+}
+
+static void
+surface_data_set_focused_state(void *data,
+				struct surface_data *surface_data,
+				int focused)
+{
+	struct desktop *desktop;
+	struct surface *surface = data, *es;
+	struct list_item *item;
+
+	desktop = surface->desktop;
+
+	wl_list_for_each(es, &desktop->surfaces, link)
+		if (es->surface_data != surface_data && focused) {
+			es->focused = 0;
+			wl_list_for_each(item, &es->item_list, surface_link)
+				if (!item->focused)
+					item->highlight = 0;
+		}
+
+	surface->focused = focused;
+
+	desktop_update_list_items(desktop, surface);
+}
+
+static void
 surface_data_destroy_handler(void *data, struct surface_data *surface_data)
 {
 	struct list_item *item, *next;
@@ -1344,6 +1483,8 @@ surface_data_destroy_handler(void *data, struct surface_data *surface_data)
 static const struct surface_data_listener surface_data_listener = {
 	surface_data_set_output_mask,
 	surface_data_set_title,
+	surface_data_set_minimized_state,
+	surface_data_set_focused_state,
 	surface_data_destroy_handler
 };
 
@@ -1362,6 +1503,7 @@ surface_data_receive_surface_object(void *data,
 		exit(EXIT_FAILURE);
 	}
 
+	surface->desktop = desktop;
 	surface->surface_data = surface_data;
 	surface->desktop = desktop;
 	surface->title = strdup("unknown");

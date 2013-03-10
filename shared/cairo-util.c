@@ -482,3 +482,63 @@ theme_get_location(struct theme *t, int x, int y,
 
 	return location;
 }
+
+cairo_surface_t *
+scale_surface(cairo_surface_t *source, cairo_filter_t filter,
+							double width, double height)
+{
+	cairo_surface_t *dest;
+	cairo_t *cr;
+	int old_width, old_height;
+
+	old_width = cairo_image_surface_get_width(source);
+	old_height = cairo_image_surface_get_height(source);
+
+	dest = cairo_surface_create_similar(source, CAIRO_CONTENT_COLOR_ALPHA,
+								width, height);
+	cr = cairo_create (dest);
+
+	cairo_scale (cr, width / old_width, height / old_height);
+	cairo_set_source_surface (cr, source, 0, 0);
+
+	cairo_pattern_set_extend (cairo_get_source(cr), CAIRO_EXTEND_REFLECT); 
+
+	cairo_set_operator (cr, CAIRO_OPERATOR_SOURCE);
+
+	cairo_paint (cr);
+
+	cairo_destroy (cr);
+
+	return dest;
+}
+
+cairo_surface_t *
+cairo_resize_surface(cairo_surface_t *source, cairo_filter_t filter,
+							int width, int height)
+{
+	if (!filter)
+		filter = CAIRO_FILTER_BEST;
+
+	while((cairo_image_surface_get_width(source) / 2.0f) > width)
+		source = scale_surface(source, filter,
+				cairo_image_surface_get_width(source) / 2.0f,
+				cairo_image_surface_get_height(source));
+
+	while((cairo_image_surface_get_height(source) / 2.0f) > height)
+		source = scale_surface(source, filter,
+				cairo_image_surface_get_width(source),
+				cairo_image_surface_get_height(source) / 2.0f);
+
+	while((cairo_image_surface_get_width(source) * 2.0f) < width)
+		source = scale_surface(source, filter,
+				cairo_image_surface_get_width(source) * 2.0f,
+				cairo_image_surface_get_height(source));
+
+	while((cairo_image_surface_get_height(source) * 2.0f) < height)
+		source = scale_surface(source, filter,
+				cairo_image_surface_get_width(source),
+				cairo_image_surface_get_height(source) * 2.0f);
+
+	return scale_surface(source, filter, width, height);
+}
+

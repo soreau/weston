@@ -4,11 +4,14 @@ cliptest
 desktop-shell-client-protocol.h
 desktop-shell-protocol.c
 dnd
+dock-client-protocol.h
+dock-protocol.c
 editor
 eventdemo
 flower
 gears
 image
+krad_dock
 input-method-protocol.c
 input-method-client-protocol.h
 weston-keyboard

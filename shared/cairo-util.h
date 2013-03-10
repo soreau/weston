@@ -89,4 +89,11 @@ enum theme_location {
 enum theme_location
 theme_get_location(struct theme *t, int x, int y, int width, int height, int flags);
 
+cairo_surface_t *
+scale_surface(cairo_surface_t *source, cairo_filter_t filter,
+							double width, double height);
+cairo_surface_t *
+cairo_resize_surface(cairo_surface_t *source, cairo_filter_t filter,
+							int width, int height);
+
 #endif

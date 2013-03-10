@@ -1,0 +1,20 @@
+<protocol name="dock">
+
+  <interface name="dock" version="1">
+    <description summary="dock interface">
+      Clients can connect to this interface and become a dock.
+    </description>
+
+    <request name="set_dock">
+      <arg name="output" type="object" interface="wl_output"/>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+
+    <event name="configure">
+      <arg name="edges" type="uint"/>
+      <arg name="surface" type="object" interface="wl_surface"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </event>
+  </interface>
+</protocol>

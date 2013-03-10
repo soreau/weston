@@ -1,5 +1,6 @@
 EXTRA_DIST =					\
 	desktop-shell.xml			\
+	dock.xml				\
 	screenshooter.xml			\
 	tablet-shell.xml			\
 	xserver.xml				\

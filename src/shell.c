@@ -37,6 +37,7 @@
 #include "desktop-shell-server-protocol.h"
 #include "input-method-server-protocol.h"
 #include "workspaces-server-protocol.h"
+#include "dock-server-protocol.h"
 #include "../shared/config-parser.h"
 
 #define DEFAULT_NUM_WORKSPACES 1
@@ -314,7 +315,8 @@ shell_grab_start(struct shell_grab *grab,
 	grab->grab.focus = &shsurf->surface->surface;
 
 	wl_pointer_start_grab(pointer, &grab->grab);
-	desktop_shell_send_grab_cursor(shell->child.desktop_shell, cursor);
+	if(shell->child.desktop_shell)
+		desktop_shell_send_grab_cursor(shell->child.desktop_shell, cursor);
 	wl_pointer_set_focus(pointer, &shell->grab_surface->surface,
 			     wl_fixed_from_int(0), wl_fixed_from_int(0));
 }
@@ -3696,11 +3698,11 @@ bind_desktop_shell(struct wl_client *client,
 					&desktop_shell_implementation,
 					id, shell);
 
-	if (client == shell->child.client) {
+//	if (client == shell->child.client) {
 		resource->destroy = unbind_desktop_shell;
 		shell->child.desktop_shell = resource;
 		return;
-	}
+//	}
 
 	wl_resource_post_error(resource, WL_DISPLAY_ERROR_INVALID_OBJECT,
 			       "permission to bind desktop_shell denied");
@@ -3726,13 +3728,13 @@ bind_surface_data_manager(struct wl_client *client,
 	resource = wl_client_add_object(client, &surface_data_manager_interface,
 					NULL, id, shell);
 
-	if (client == shell->child.client) {
+//	if (client == shell->child.client) {
 		resource->destroy = unbind_surface_data_manager;
 		shell->surface_data_manager = resource;
 		surface_data_create_all_objects(shell);
 		surface_data_send_all_info(shell);
 		return;
-	}
+//	}
 
 	wl_resource_post_error(resource, WL_DISPLAY_ERROR_INVALID_OBJECT,
 			       "permission to bind desktop_shell denied");

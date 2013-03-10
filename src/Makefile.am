@@ -246,6 +246,8 @@ BUILT_SOURCES =					\
 	tablet-shell-server-protocol.h		\
 	desktop-shell-protocol.c		\
 	desktop-shell-server-protocol.h		\
+	dock-server-protocol.h			\
+	dock-protocol.c				\
 	text-protocol.c				\
 	text-server-protocol.h			\
 	input-method-protocol.c			\

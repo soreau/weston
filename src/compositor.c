@@ -1686,12 +1686,22 @@ weston_compositor_wake(struct weston_compositor *compositor)
 }
 
 WL_EXPORT void
+weston_compositor_set_sleeping(struct weston_compositor *compositor)
+{
+	if (compositor->state == WESTON_COMPOSITOR_SLEEPING)
+		return;
+
+	wl_event_source_timer_update(compositor->idle_source, 0);
+	compositor->state = WESTON_COMPOSITOR_SLEEPING;
+}
+
+WL_EXPORT void
 weston_compositor_sleep(struct weston_compositor *compositor)
 {
 	if (compositor->state == WESTON_COMPOSITOR_SLEEPING)
 		return;
 
-	compositor->state = WESTON_COMPOSITOR_SLEEPING;
+	weston_compositor_set_sleeping(compositor);
 	weston_compositor_dpms(compositor, WESTON_DPMS_OFF);
 }
 

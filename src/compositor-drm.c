@@ -2046,7 +2046,7 @@ vt_func(struct weston_compositor *compositor, int event)
 
 		compositor->focus = 0;
 		ec->prev_state = compositor->state;
-		compositor->state = WESTON_COMPOSITOR_SLEEPING;
+		weston_compositor_set_sleeping(compositor);
 
 		/* If we have a repaint scheduled (either from a
 		 * pending pageflip or the idle handler), make sure we

@@ -52,8 +52,7 @@ extern char **environ; /* defined by libc */
 struct desktop {
 	struct display *display;
 	struct desktop_shell *shell;
-	struct unlock_dialog *unlock_dialog;
-	struct task unlock_task;
+	struct dock *dock;
 	struct wl_list surfaces;
 	struct wl_list outputs;
 	uint32_t output_count;
@@ -73,7 +72,7 @@ struct surface {
 	char *title;
 	int maximized, minimized, focused;
 
-	/* One window list item per panel of the surface's output_mask */
+	/* One window list item per dock of the surface's output_mask */
 	struct wl_list item_list;
 
 	struct wl_list link;
@@ -81,7 +80,7 @@ struct surface {
 
 struct resize {
 	void (*configure)(void *data,
-			  struct desktop_shell *desktop_shell,
+			  struct dock *dock,
 			  uint32_t edges, struct window *window,
 			  int32_t width, int32_t height);
 };
@@ -90,7 +89,7 @@ struct rgba {
 	float r, g, b, a;
 };
 
-struct panel {
+struct dock {
 	struct resize base;
 	struct window *window;
 	struct widget *widget;
@@ -99,7 +98,7 @@ struct panel {
 	struct rectangle window_list_rect;
 	uint32_t surface_count;
 	struct rgba focused_item;
-	struct panel_clock *clock;
+	struct dock_clock *clock;
 };
 
 struct background {
@@ -113,14 +112,14 @@ struct output {
 	struct wl_list link;
 	uint32_t id;
 
-	struct panel *panel;
+	struct dock *dock;
 	struct background *background;
 };
 
 struct list_item {
 	struct surface *surface;
 	struct widget *widget;
-	struct panel *panel;
+	struct dock *dock;
 	cairo_surface_t *icon;
 	int focused, highlight;
 	int x, y;
@@ -129,9 +128,9 @@ struct list_item {
 	struct wl_list reorder_link;
 };
 
-struct panel_launcher {
+struct dock_launcher {
 	struct widget *widget;
-	struct panel *panel;
+	struct dock *dock;
 	cairo_surface_t *icon;
 	int focused, pressed;
 	int main_menu_button;
@@ -141,9 +140,9 @@ struct panel_launcher {
 	struct wl_array argv;
 };
 
-struct panel_clock {
+struct dock_clock {
 	struct widget *widget;
-	struct panel *panel;
+	struct dock *dock;
 	struct task clock_task;
 	int clock_fd;
 };
@@ -159,7 +158,7 @@ struct unlock_dialog {
 
 static char *key_background_image = DATADIR "/weston/pattern.png";
 static char *key_background_type = "tile";
-static uint32_t key_panel_color = 0xaa000000;
+static uint32_t key_dock_color = 0xaa000000;
 static uint32_t key_background_color = 0xff002244;
 static char *key_launcher_icon;
 static char *key_launcher_path;
@@ -169,7 +168,7 @@ static int key_locking = 1;
 static const struct config_key shell_config_keys[] = {
 	{ "background-image", CONFIG_KEY_STRING, &key_background_image },
 	{ "background-type", CONFIG_KEY_STRING, &key_background_type },
-	{ "panel-color", CONFIG_KEY_UNSIGNED_INTEGER, &key_panel_color },
+	{ "dock-color", CONFIG_KEY_UNSIGNED_INTEGER, &key_dock_color },
 	{ "background-color", CONFIG_KEY_UNSIGNED_INTEGER, &key_background_color },
 	{ "locking", CONFIG_KEY_BOOLEAN, &key_locking },
 };
@@ -198,13 +197,13 @@ sigchild_handler(int s)
 }
 
 static void
-panel_menu_func(struct window *window, int index, void *data)
+dock_menu_func(struct window *window, int index, void *data)
 {
-	printf("Selected index %d from a panel menu.\n", index);
+	printf("Selected index %d from a dock menu.\n", index);
 }
 
 static void
-panel_show_menu(struct panel *panel, struct input *input, uint32_t time)
+dock_show_menu(struct dock *dock, struct input *input, uint32_t time)
 {
 	int32_t x, y;
 	static const char *entries[] = {
@@ -212,13 +211,13 @@ panel_show_menu(struct panel *panel, struct input *input, uint32_t time)
 	};
 
 	input_get_position(input, &x, &y);
-	window_show_menu(window_get_display(panel->window),
-			 input, time, panel->window,
-			 x - 10, y - 10, panel_menu_func, entries, 4);
+	window_show_menu(window_get_display(dock->window),
+			 input, time, dock->window,
+			 x - 10, y - 10, dock_menu_func, entries, 4);
 }
 
 static void
-panel_launcher_activate(struct panel_launcher *widget)
+dock_launcher_activate(struct dock_launcher *widget)
 {
 	char **argv;
 	pid_t pid;
@@ -240,14 +239,14 @@ panel_launcher_activate(struct panel_launcher *widget)
 }
 
 static void
-panel_launcher_redraw_handler(struct widget *widget, void *data)
+dock_launcher_redraw_handler(struct widget *widget, void *data)
 {
-	struct panel_launcher *launcher = data;
+	struct dock_launcher *launcher = data;
 	cairo_surface_t *surface;
 	struct rectangle allocation;
 	cairo_t *cr;
 
-	surface = window_get_surface(launcher->panel->window);
+	surface = window_get_surface(launcher->dock->window);
 	cr = cairo_create(surface);
 
 	widget_get_allocation(widget, &allocation);
@@ -270,10 +269,10 @@ panel_launcher_redraw_handler(struct widget *widget, void *data)
 }
 
 static int
-panel_launcher_motion_handler(struct widget *widget, struct input *input,
+dock_launcher_motion_handler(struct widget *widget, struct input *input,
 			      uint32_t time, float x, float y, void *data)
 {
-	struct panel_launcher *launcher = data;
+	struct dock_launcher *launcher = data;
 
 	widget_set_tooltip(widget, basename((char *)launcher->path), x, y);
 
@@ -300,16 +299,16 @@ get_hex_color_rgba(uint32_t color, float *r, float *g, float *b, float *a)
 }
 
 static void
-panel_redraw_handler(struct widget *widget, void *data)
+dock_redraw_handler(struct widget *widget, void *data)
 {
 	cairo_surface_t *surface;
 	cairo_t *cr;
-	struct panel *panel = data;
+	struct dock *dock = data;
 
-	surface = window_get_surface(panel->window);
+	surface = window_get_surface(dock->window);
 	cr = cairo_create(surface);
 	cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
-	set_hex_color(cr, key_panel_color);
+	set_hex_color(cr, key_dock_color);
 	cairo_paint(cr);
 
 	cairo_destroy(cr);
@@ -317,10 +316,10 @@ panel_redraw_handler(struct widget *widget, void *data)
 }
 
 static int
-panel_launcher_enter_handler(struct widget *widget, struct input *input,
+dock_launcher_enter_handler(struct widget *widget, struct input *input,
 			     float x, float y, void *data)
 {
-	struct panel_launcher *launcher = data;
+	struct dock_launcher *launcher = data;
 
 	launcher->focused = 1;
 	widget_schedule_redraw(widget);
@@ -329,10 +328,10 @@ panel_launcher_enter_handler(struct widget *widget, struct input *input,
 }
 
 static void
-panel_launcher_leave_handler(struct widget *widget,
+dock_launcher_leave_handler(struct widget *widget,
 			     struct input *input, void *data)
 {
-	struct panel_launcher *launcher = data;
+	struct dock_launcher *launcher = data;
 
 	launcher->focused = 0;
 	widget_destroy_tooltip(widget);
@@ -340,12 +339,12 @@ panel_launcher_leave_handler(struct widget *widget,
 }
 
 static void
-panel_launcher_button_handler(struct widget *widget,
+dock_launcher_button_handler(struct widget *widget,
 			      struct input *input, uint32_t time,
 			      uint32_t button,
 			      enum wl_pointer_button_state state, void *data)
 {
-	struct panel_launcher *launcher;
+	struct dock_launcher *launcher;
 
 	launcher = widget_get_user_data(widget);
 	widget_schedule_redraw(widget);
@@ -353,15 +352,15 @@ panel_launcher_button_handler(struct widget *widget,
 		if (launcher->main_menu_button)
 			printf("main menu clicked\n");
 		else
-			panel_launcher_activate(launcher);
+			dock_launcher_activate(launcher);
 	}
 }
 
 static void
 clock_func(struct task *task, uint32_t events)
 {
-	struct panel_clock *clock =
-		container_of(task, struct panel_clock, clock_task);
+	struct dock_clock *clock =
+		container_of(task, struct dock_clock, clock_task);
 	uint64_t exp;
 
 	if (read(clock->clock_fd, &exp, sizeof exp) != sizeof exp)
@@ -370,10 +369,10 @@ clock_func(struct task *task, uint32_t events)
 }
 
 static void
-panel_clock_redraw_handler(struct widget *widget, void *data)
+dock_clock_redraw_handler(struct widget *widget, void *data)
 {
 	cairo_surface_t *surface;
-	struct panel_clock *clock = data;
+	struct dock_clock *clock = data;
 	cairo_t *cr;
 	struct rectangle allocation;
 	cairo_text_extents_t extents;
@@ -390,7 +389,7 @@ panel_clock_redraw_handler(struct widget *widget, void *data)
 	if (allocation.width == 0)
 		return;
 
-	surface = window_get_surface(clock->panel->window);
+	surface = window_get_surface(clock->dock->window);
 	cr = cairo_create(surface);
 	cairo_select_font_face(cr, "sans",
 			       CAIRO_FONT_SLANT_NORMAL,
@@ -410,7 +409,7 @@ panel_clock_redraw_handler(struct widget *widget, void *data)
 }
 
 static int
-clock_timer_reset(struct panel_clock *clock)
+clock_timer_reset(struct dock_clock *clock)
 {
 	struct itimerspec its;
 
@@ -427,7 +426,7 @@ clock_timer_reset(struct panel_clock *clock)
 }
 
 static void
-panel_destroy_clock(struct panel_clock *clock)
+dock_destroy_clock(struct dock_clock *clock)
 {
 	widget_destroy(clock->widget);
 
@@ -437,9 +436,9 @@ panel_destroy_clock(struct panel_clock *clock)
 }
 
 static void
-panel_add_clock(struct panel *panel)
+dock_add_clock(struct dock *dock)
 {
-	struct panel_clock *clock;
+	struct dock_clock *clock;
 	int timerfd;
 
 	timerfd = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC);
@@ -450,50 +449,50 @@ panel_add_clock(struct panel *panel)
 
 	clock = malloc(sizeof *clock);
 	memset(clock, 0, sizeof *clock);
-	clock->panel = panel;
-	panel->clock = clock;
+	clock->dock = dock;
+	dock->clock = clock;
 	clock->clock_fd = timerfd;
 
 	clock->clock_task.run = clock_func;
-	display_watch_fd(window_get_display(panel->window), clock->clock_fd,
+	display_watch_fd(window_get_display(dock->window), clock->clock_fd,
 			 EPOLLIN, &clock->clock_task);
 	clock_timer_reset(clock);
 
-	clock->widget = widget_add_widget(panel->widget, clock);
-	widget_set_redraw_handler(clock->widget, panel_clock_redraw_handler);
+	clock->widget = widget_add_widget(dock->widget, clock);
+	widget_set_redraw_handler(clock->widget, dock_clock_redraw_handler);
 }
 
 static void
-panel_button_handler(struct widget *widget,
+dock_button_handler(struct widget *widget,
 		     struct input *input, uint32_t time,
 		     uint32_t button,
 		     enum wl_pointer_button_state state, void *data)
 {
-	struct panel *panel = data;
+	struct dock *dock = data;
 
 	if (button == BTN_RIGHT && state == WL_POINTER_BUTTON_STATE_PRESSED)
-		panel_show_menu(panel, input, time);
+		dock_show_menu(dock, input, time);
 }
 
 static void
-panel_window_list_schedule_redraw(struct panel *panel)
+dock_window_list_schedule_redraw(struct dock *dock)
 {
 	struct list_item *item;
 	int item_width, padding, x, w;
 
-	/* If there are no window list items, redraw the panel to clear it */
-	if (wl_list_empty(&panel->window_list)) {
-		widget_schedule_redraw(panel->widget);
+	/* If there are no window list items, redraw the dock to clear it */
+	if (wl_list_empty(&dock->window_list)) {
+		widget_schedule_redraw(dock->widget);
 		return;
 	}
 
-	item_width = (panel->window_list_rect.width / panel->surface_count);
+	item_width = (dock->window_list_rect.width / dock->surface_count);
 	padding = 2;
 
-	x = panel->window_list_rect.x + padding;
+	x = dock->window_list_rect.x + padding;
 	w = MIN(item_width - padding, 200);
 
-	wl_list_for_each(item, &panel->window_list, link) {
+	wl_list_for_each(item, &dock->window_list, link) {
 		widget_set_allocation(item->widget, x, 4, w, 24);
 
 		x += w + padding;
@@ -502,13 +501,13 @@ panel_window_list_schedule_redraw(struct panel *panel)
 }
 
 static void
-panel_resize_handler(struct widget *widget,
+dock_resize_handler(struct widget *widget,
 		     int32_t width, int32_t height, void *data)
 {
-	struct panel_launcher *launcher;
+	struct dock_launcher *launcher;
 	struct rectangle launcher_rect;
 	struct rectangle clock_rect;
-	struct panel *panel = data;
+	struct dock *dock = data;
 	int x, y, w, h;
 
 	x = 16;
@@ -516,7 +515,7 @@ panel_resize_handler(struct widget *widget,
 
 	launcher_rect.x = x;
 
-	wl_list_for_each(launcher, &panel->launcher_list, link) {
+	wl_list_for_each(launcher, &dock->launcher_list, link) {
 		w = cairo_image_surface_get_width(launcher->icon);
 		h = cairo_image_surface_get_height(launcher->icon);
 /*		
@@ -533,35 +532,35 @@ panel_resize_handler(struct widget *widget,
 	w=170;
 	h=20;
 
-	if (panel->clock)
-		widget_set_allocation(panel->clock->widget,
+	if (dock->clock)
+		widget_set_allocation(dock->clock->widget,
 				      width - w - 8, 4, w, 24);
 
-	widget_get_allocation(panel->clock->widget, &clock_rect);
+	widget_get_allocation(dock->clock->widget, &clock_rect);
 
-	panel->window_list_rect.x = launcher_rect.x + launcher_rect.width;
-	panel->window_list_rect.y = 2;
-	panel->window_list_rect.width = width -
-					panel->window_list_rect.x -
+	dock->window_list_rect.x = launcher_rect.x + launcher_rect.width;
+	dock->window_list_rect.y = 2;
+	dock->window_list_rect.width = width -
+					dock->window_list_rect.x -
 					(clock_rect.width + 20);
-	panel->window_list_rect.height = 28;
-	panel_window_list_schedule_redraw(panel);
+	dock->window_list_rect.height = 28;
+	dock_window_list_schedule_redraw(dock);
 }
 
 static void
-panel_configure(void *data,
-		struct desktop_shell *desktop_shell,
+dock_configure(void *data,
+		struct dock *dock,
 		uint32_t edges, struct window *window,
 		int32_t width, int32_t height)
 {
 	struct resize *resize = window_get_user_data(window);
-	struct panel *panel = container_of(resize, struct panel, base);
+	struct dock *dock_mock = container_of(resize, struct dock, base);
 
-	window_schedule_resize(panel->window, width, 96);
+	window_schedule_resize(dock_mock->window, width, 96);
 }
 
 static void
-panel_destroy_launcher(struct panel_launcher *launcher)
+dock_destroy_launcher(struct dock_launcher *launcher)
 {
 	wl_array_release(&launcher->argv);
 	wl_array_release(&launcher->envp);
@@ -577,64 +576,64 @@ panel_destroy_launcher(struct panel_launcher *launcher)
 }
 
 static void
-panel_destroy(struct panel *panel)
+dock_destroy_instance(struct dock *dock)
 {
-	struct panel_launcher *tmp;
-	struct panel_launcher *launcher;
+	struct dock_launcher *tmp;
+	struct dock_launcher *launcher;
 
-	panel_destroy_clock(panel->clock);
+	dock_destroy_clock(dock->clock);
 
-	wl_list_for_each_safe(launcher, tmp, &panel->launcher_list, link)
-		panel_destroy_launcher(launcher);
+	wl_list_for_each_safe(launcher, tmp, &dock->launcher_list, link)
+		dock_destroy_launcher(launcher);
 
-	widget_destroy(panel->widget);
-	window_destroy(panel->window);
+	widget_destroy(dock->widget);
+	window_destroy(dock->window);
 
-	free(panel);
+	free(dock);
 }
 
 static void
-panel_set_list_item_focus_color(struct panel *panel)
+dock_set_list_item_focus_color(struct dock *dock)
 {
 	float r, g, b, a;
 
-	/* Consider panel color when choosing item highlight color */
-	get_hex_color_rgba(key_panel_color, &r, &b, &g, &a);
+	/* Consider dock color when choosing item highlight color */
+	get_hex_color_rgba(key_dock_color, &r, &b, &g, &a);
 	r += 0.2;
 	g += 0.2;
 	b += 0.2;
-	panel->focused_item.r = r > 1.0 ? 0.6 : r;
-	panel->focused_item.g = g > 1.0 ? 0.6 : g;
-	panel->focused_item.b = b > 1.0 ? 0.6 : b;
-	panel->focused_item.a = 0.75;
+	dock->focused_item.r = r > 1.0 ? 0.6 : r;
+	dock->focused_item.g = g > 1.0 ? 0.6 : g;
+	dock->focused_item.b = b > 1.0 ? 0.6 : b;
+	dock->focused_item.a = 0.75;
 }
 
-static struct panel *
-panel_create(struct display *display)
+static struct dock *
+dock_create(struct display *display)
 {
-	struct panel *panel;
+	struct dock *dock;
 
-	panel = malloc(sizeof *panel);
-	memset(panel, 0, sizeof *panel);
+	dock = malloc(sizeof *dock);
+	memset(dock, 0, sizeof *dock);
 
-	panel->base.configure = panel_configure;
-	panel->window = window_create_custom(display);
-	panel->widget = window_add_widget(panel->window, panel);
-	wl_list_init(&panel->launcher_list);
-	wl_list_init(&panel->window_list);
+	dock->base.configure = dock_configure;
+	dock->window = window_create_custom(display);
+	dock->widget = window_add_widget(dock->window, dock);
+	wl_list_init(&dock->launcher_list);
+	wl_list_init(&dock->window_list);
 
-	window_set_title(panel->window, "panel");
-	window_set_user_data(panel->window, panel);
+	window_set_title(dock->window, "dock");
+	window_set_user_data(dock->window, dock);
 
-	widget_set_redraw_handler(panel->widget, panel_redraw_handler);
-	widget_set_resize_handler(panel->widget, panel_resize_handler);
-	widget_set_button_handler(panel->widget, panel_button_handler);
+	widget_set_redraw_handler(dock->widget, dock_redraw_handler);
+	widget_set_resize_handler(dock->widget, dock_resize_handler);
+	widget_set_button_handler(dock->widget, dock_button_handler);
 
-	panel->surface_count = 0;
-	panel_set_list_item_focus_color(panel);
-	panel_add_clock(panel);
+	dock->surface_count = 0;
+	dock_set_list_item_focus_color(dock);
+	dock_add_clock(dock);
 
-	return panel;
+	return dock;
 }
 
 static cairo_surface_t *
@@ -696,9 +695,9 @@ load_icon_or_fallback(const char *icon, int launcher)
 }
 
 static void
-panel_add_launcher(struct panel *panel, const char *icon, const char *path)
+dock_add_launcher(struct dock *dock, const char *icon, const char *path)
 {
-	struct panel_launcher *launcher;
+	struct dock_launcher *launcher;
 	char *start, *p, *eq, **ps;
 	int i, j, k;
 
@@ -755,259 +754,25 @@ panel_add_launcher(struct panel *panel, const char *icon, const char *path)
 	ps = wl_array_add(&launcher->argv, sizeof *ps);
 	*ps = NULL;
 
-	launcher->panel = panel;
-	wl_list_insert(panel->launcher_list.prev, &launcher->link);
+	launcher->dock = dock;
+	wl_list_insert(dock->launcher_list.prev, &launcher->link);
 
-	launcher->widget = widget_add_widget(panel->widget, launcher);
+	launcher->widget = widget_add_widget(dock->widget, launcher);
 	widget_set_enter_handler(launcher->widget,
-				 panel_launcher_enter_handler);
+				 dock_launcher_enter_handler);
 	widget_set_leave_handler(launcher->widget,
-				   panel_launcher_leave_handler);
+				   dock_launcher_leave_handler);
 	widget_set_button_handler(launcher->widget,
-				    panel_launcher_button_handler);
+				    dock_launcher_button_handler);
 	widget_set_redraw_handler(launcher->widget,
-				  panel_launcher_redraw_handler);
+				  dock_launcher_redraw_handler);
 	widget_set_motion_handler(launcher->widget,
-				  panel_launcher_motion_handler);
-}
-
-enum {
-	BACKGROUND_SCALE,
-	BACKGROUND_TILE
-};
-
-static void
-background_draw(struct widget *widget, void *data)
-{
-	struct background *background = data;
-	cairo_surface_t *surface, *image;
-	cairo_pattern_t *pattern;
-	cairo_matrix_t matrix;
-	cairo_t *cr;
-	double sx, sy;
-	struct rectangle allocation;
-	int type = -1;
-	struct display *display;
-	struct wl_region *opaque;
-
-	surface = window_get_surface(background->window);
-
-	cr = cairo_create(surface);
-	cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
-	cairo_set_source_rgba(cr, 0.0, 0.0, 0.2, 1.0);
-	cairo_paint(cr);
-
-	widget_get_allocation(widget, &allocation);
-	image = NULL;
-	if (key_background_image)
-		image = load_cairo_surface(key_background_image);
-
-	if (strcmp(key_background_type, "scale") == 0)
-		type = BACKGROUND_SCALE;
-	else if (strcmp(key_background_type, "tile") == 0)
-		type = BACKGROUND_TILE;
-	else
-		fprintf(stderr, "invalid background-type: %s\n",
-			key_background_type);
-
-	if (image && type != -1) {
-		pattern = cairo_pattern_create_for_surface(image);
-		switch (type) {
-		case BACKGROUND_SCALE:
-			sx = (double) cairo_image_surface_get_width(image) /
-				allocation.width;
-			sy = (double) cairo_image_surface_get_height(image) /
-				allocation.height;
-			cairo_matrix_init_scale(&matrix, sx, sy);
-			cairo_pattern_set_matrix(pattern, &matrix);
-			break;
-		case BACKGROUND_TILE:
-			cairo_pattern_set_extend(pattern, CAIRO_EXTEND_REPEAT);
-			break;
-		}
-		cairo_set_source(cr, pattern);
-		cairo_pattern_destroy (pattern);
-		cairo_surface_destroy(image);
-	} else {
-		set_hex_color(cr, key_background_color);
-	}
-
-	cairo_paint(cr);
-	cairo_destroy(cr);
-	cairo_surface_destroy(surface);
-
-	display = window_get_display(background->window);
-	opaque = wl_compositor_create_region(display_get_compositor(display));
-	wl_region_add(opaque, allocation.x, allocation.y,
-		      allocation.width, allocation.height);
-	wl_surface_set_opaque_region(window_get_wl_surface(background->window), opaque);
-	wl_region_destroy(opaque);
+				  dock_launcher_motion_handler);
 }
 
 static void
-background_configure(void *data,
-		     struct desktop_shell *desktop_shell,
-		     uint32_t edges, struct window *window,
-		     int32_t width, int32_t height)
-{
-	struct background *background =
-		(struct background *) window_get_user_data(window);
-
-	widget_schedule_resize(background->widget, width, height);
-}
-
-static void
-unlock_dialog_redraw_handler(struct widget *widget, void *data)
-{
-	struct unlock_dialog *dialog = data;
-	struct rectangle allocation;
-	cairo_t *cr;
-	cairo_surface_t *surface;
-	cairo_pattern_t *pat;
-	double cx, cy, r, f;
-
-	surface = window_get_surface(dialog->window);
-	cr = cairo_create(surface);
-
-	widget_get_allocation(dialog->widget, &allocation);
-	cairo_rectangle(cr, allocation.x, allocation.y,
-			allocation.width, allocation.height);
-	cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
-	cairo_set_source_rgba(cr, 0, 0, 0, 0.6);
-	cairo_fill(cr);
-
-	cairo_translate(cr, allocation.x, allocation.y);
-	if (dialog->button_focused)
-		f = 1.0;
-	else
-		f = 0.7;
-
-	cx = allocation.width / 2.0;
-	cy = allocation.height / 2.0;
-	r = (cx < cy ? cx : cy) * 0.4;
-	pat = cairo_pattern_create_radial(cx, cy, r * 0.7, cx, cy, r);
-	cairo_pattern_add_color_stop_rgb(pat, 0.0, 0, 0.86 * f, 0);
-	cairo_pattern_add_color_stop_rgb(pat, 0.85, 0.2 * f, f, 0.2 * f);
-	cairo_pattern_add_color_stop_rgb(pat, 1.0, 0, 0.86 * f, 0);
-	cairo_set_source(cr, pat);
-	cairo_pattern_destroy(pat);
-	cairo_arc(cr, cx, cy, r, 0.0, 2.0 * M_PI);
-	cairo_fill(cr);
-
-	widget_set_allocation(dialog->button,
-			      allocation.x + cx - r,
-			      allocation.y + cy - r, 2 * r, 2 * r);
-
-	cairo_destroy(cr);
-
-	cairo_surface_destroy(surface);
-}
-
-static void
-unlock_dialog_button_handler(struct widget *widget,
-			     struct input *input, uint32_t time,
-			     uint32_t button,
-			     enum wl_pointer_button_state state, void *data)
-{
-	struct unlock_dialog *dialog = data;
-	struct desktop *desktop = dialog->desktop;
-
-	if (button == BTN_LEFT) {
-		if (state == WL_POINTER_BUTTON_STATE_RELEASED &&
-		    !dialog->closing) {
-			display_defer(desktop->display, &desktop->unlock_task);
-			dialog->closing = 1;
-		}
-	}
-}
-
-static void
-unlock_dialog_keyboard_focus_handler(struct window *window,
-				     struct input *device, void *data)
-{
-	window_schedule_redraw(window);
-}
-
-static int
-unlock_dialog_widget_enter_handler(struct widget *widget,
-				   struct input *input,
-				   float x, float y, void *data)
-{
-	struct unlock_dialog *dialog = data;
-
-	dialog->button_focused = 1;
-	widget_schedule_redraw(widget);
-
-	return CURSOR_LEFT_PTR;
-}
-
-static void
-unlock_dialog_widget_leave_handler(struct widget *widget,
-				   struct input *input, void *data)
-{
-	struct unlock_dialog *dialog = data;
-
-	dialog->button_focused = 0;
-	widget_schedule_redraw(widget);
-}
-
-static struct unlock_dialog *
-unlock_dialog_create(struct desktop *desktop)
-{
-	struct display *display = desktop->display;
-	struct unlock_dialog *dialog;
-
-	dialog = malloc(sizeof *dialog);
-	if (!dialog)
-		return NULL;
-	memset(dialog, 0, sizeof *dialog);
-
-	dialog->window = window_create_custom(display);
-	dialog->widget = frame_create(dialog->window, dialog);
-	window_set_title(dialog->window, "Unlock your desktop");
-
-	window_set_user_data(dialog->window, dialog);
-	window_set_keyboard_focus_handler(dialog->window,
-					  unlock_dialog_keyboard_focus_handler);
-	dialog->button = widget_add_widget(dialog->widget, dialog);
-	widget_set_redraw_handler(dialog->widget,
-				  unlock_dialog_redraw_handler);
-	widget_set_enter_handler(dialog->button,
-				 unlock_dialog_widget_enter_handler);
-	widget_set_leave_handler(dialog->button,
-				 unlock_dialog_widget_leave_handler);
-	widget_set_button_handler(dialog->button,
-				  unlock_dialog_button_handler);
-
-	desktop_shell_set_lock_surface(desktop->shell,
-				       window_get_wl_surface(dialog->window));
-
-	window_schedule_resize(dialog->window, 260, 230);
-
-	return dialog;
-}
-
-static void
-unlock_dialog_destroy(struct unlock_dialog *dialog)
-{
-	window_destroy(dialog->window);
-	free(dialog);
-}
-
-static void
-unlock_dialog_finish(struct task *task, uint32_t events)
-{
-	struct desktop *desktop =
-		container_of(task, struct desktop, unlock_task);
-
-	desktop_shell_unlock(desktop->shell);
-	unlock_dialog_destroy(desktop->unlock_dialog);
-	desktop->unlock_dialog = NULL;
-}
-
-static void
-desktop_shell_configure(void *data,
-			struct desktop_shell *desktop_shell,
+do_we_need_this_configure(void *data,
+			struct dock *dock,
 			uint32_t edges,
 			struct wl_surface *surface,
 			int32_t width, int32_t height)
@@ -1015,77 +780,11 @@ desktop_shell_configure(void *data,
 	struct window *window = wl_surface_get_user_data(surface);
 	struct resize *r = window_get_user_data(window);
 
-	r->configure(data, desktop_shell, edges, window, width, height);
+	r->configure(data, dock, edges, window, width, height);
 }
 
-static void
-desktop_shell_prepare_lock_surface(void *data,
-				   struct desktop_shell *desktop_shell)
-{
-	struct desktop *desktop = data;
-
-	if (!key_locking) {
-		desktop_shell_unlock(desktop->shell);
-		return;
-	}
-
-	if (!desktop->unlock_dialog) {
-		desktop->unlock_dialog = unlock_dialog_create(desktop);
-		desktop->unlock_dialog->desktop = desktop;
-	}
-}
-
-static void
-desktop_shell_grab_cursor(void *data,
-			  struct desktop_shell *desktop_shell,
-			  uint32_t cursor)
-{
-	struct desktop *desktop = data;
-
-	switch (cursor) {
-	case DESKTOP_SHELL_CURSOR_NONE:
-		desktop->grab_cursor = CURSOR_BLANK;
-		break;
-	case DESKTOP_SHELL_CURSOR_BUSY:
-		desktop->grab_cursor = CURSOR_WATCH;
-		break;
-	case DESKTOP_SHELL_CURSOR_MOVE:
-		desktop->grab_cursor = CURSOR_DRAGGING;
-		break;
-	case DESKTOP_SHELL_CURSOR_RESIZE_TOP:
-		desktop->grab_cursor = CURSOR_TOP;
-		break;
-	case DESKTOP_SHELL_CURSOR_RESIZE_BOTTOM:
-		desktop->grab_cursor = CURSOR_BOTTOM;
-		break;
-	case DESKTOP_SHELL_CURSOR_RESIZE_LEFT:
-		desktop->grab_cursor = CURSOR_LEFT;
-		break;
-	case DESKTOP_SHELL_CURSOR_RESIZE_RIGHT:
-		desktop->grab_cursor = CURSOR_RIGHT;
-		break;
-	case DESKTOP_SHELL_CURSOR_RESIZE_TOP_LEFT:
-		desktop->grab_cursor = CURSOR_TOP_LEFT;
-		break;
-	case DESKTOP_SHELL_CURSOR_RESIZE_TOP_RIGHT:
-		desktop->grab_cursor = CURSOR_TOP_RIGHT;
-		break;
-	case DESKTOP_SHELL_CURSOR_RESIZE_BOTTOM_LEFT:
-		desktop->grab_cursor = CURSOR_BOTTOM_LEFT;
-		break;
-	case DESKTOP_SHELL_CURSOR_RESIZE_BOTTOM_RIGHT:
-		desktop->grab_cursor = CURSOR_BOTTOM_RIGHT;
-		break;
-	case DESKTOP_SHELL_CURSOR_ARROW:
-	default:
-		desktop->grab_cursor = CURSOR_LEFT_PTR;
-	}
-}
-
-static const struct desktop_shell_listener listener = {
-	desktop_shell_configure,
-	desktop_shell_prepare_lock_surface,
-	desktop_shell_grab_cursor
+static const struct dock_listener dock_listener = {
+	do_we_need_this_configure
 };
 
 static void
@@ -1098,7 +797,7 @@ background_destroy(struct background *background)
 }
 
 static void
-panel_list_item_redraw_handler(struct widget *widget, void *data)
+dock_list_item_redraw_handler(struct widget *widget, void *data)
 {
 	cairo_t *cr;
 	cairo_surface_t *surface;
@@ -1115,14 +814,14 @@ panel_list_item_redraw_handler(struct widget *widget, void *data)
 	if (rect.width == 0)
 		return;
 
-	surface = window_get_surface(item->panel->window);
+	surface = window_get_surface(item->dock->window);
 	cr = cairo_create(surface);
 
 	if (item->focused || item->surface->focused) {
-		cairo_set_source_rgba(cr, item->panel->focused_item.r,
-					  item->panel->focused_item.g,
-					  item->panel->focused_item.b,
-					  item->panel->focused_item.a);
+		cairo_set_source_rgba(cr, item->dock->focused_item.r,
+					  item->dock->focused_item.g,
+					  item->dock->focused_item.b,
+					  item->dock->focused_item.a);
 		cairo_rectangle(cr, rect.x, rect.y, rect.width, rect.height);
 		cairo_fill(cr);
 	}
@@ -1182,7 +881,7 @@ panel_list_item_redraw_handler(struct widget *widget, void *data)
 }
 
 static int
-panel_list_item_motion_handler(struct widget *widget, struct input *input,
+dock_list_item_motion_handler(struct widget *widget, struct input *input,
 			      uint32_t time, float x, float y, void *data)
 {
 	struct list_item *item = data;
@@ -1196,7 +895,7 @@ panel_list_item_motion_handler(struct widget *widget, struct input *input,
 }
 
 static int
-panel_list_item_enter_handler(struct widget *widget, struct input *input,
+dock_list_item_enter_handler(struct widget *widget, struct input *input,
 			     float x, float y, void *data)
 {
 	struct list_item *item = data, *t_item;
@@ -1207,7 +906,7 @@ panel_list_item_enter_handler(struct widget *widget, struct input *input,
 	item->focused = 1;
 	widget_schedule_redraw(widget);
 
-	wl_list_for_each(t_item, &item->panel->window_list, link) {
+	wl_list_for_each(t_item, &item->dock->window_list, link) {
 		if(item == t_item)
 			continue;
 		t_item->highlight = 0;
@@ -1218,7 +917,7 @@ panel_list_item_enter_handler(struct widget *widget, struct input *input,
 }
 
 static void
-panel_list_item_leave_handler(struct widget *widget,
+dock_list_item_leave_handler(struct widget *widget,
 			     struct input *input, void *data)
 {
 	struct list_item *item = data;
@@ -1277,11 +976,11 @@ static void
 list_item_menu_func(struct window *window, int index, void *data)
 {
 	struct list_item *item;
-	struct panel *panel;
+	struct dock *dock;
 
-	panel = data;
+	dock = data;
 
-	wl_list_for_each(item, &panel->window_list, link)
+	wl_list_for_each(item, &dock->window_list, link)
 		if (item->focused) {
 			list_item_menu_handle_button(item, index);
 			return;
@@ -1293,7 +992,7 @@ list_item_menu_func(struct window *window, int index, void *data)
 static void
 list_item_show_menu(struct list_item *item, struct input *input, uint32_t time)
 {
-	struct panel *panel;
+	struct dock *dock;
 	int32_t x, y;
 	static const char *entries[MENU_ENTRIES];
 
@@ -1301,10 +1000,10 @@ list_item_show_menu(struct list_item *item, struct input *input, uint32_t time)
 	entries[1] = item->surface->maximized ? "Unmaximize" : "Maximize";
 	entries[2] = "Close";
 
-	panel = item->panel;
+	dock = item->dock;
 	input_get_position(input, &x, &y);
-	window_show_menu(window_get_display(panel->window), input,
-				time, panel->window, x - 10, y - 10,
+	window_show_menu(window_get_display(dock->window), input,
+				time, dock->window, x - 10, y - 10,
 				list_item_menu_func, entries, MENU_ENTRIES);
 }
 
@@ -1339,13 +1038,13 @@ list_contains_point(struct list_item *item, int x, int y)
 {
 	struct rectangle list_rect;
 
-	list_rect = item->panel->window_list_rect;
+	list_rect = item->dock->window_list_rect;
 
 	return rect_contains_point(list_rect, x, y);
 }
 
 static void
-panel_item_list_reorder(struct panel *panel,
+dock_item_list_reorder(struct dock *dock,
 			struct list_item *current, struct list_item *item)
 {
 	struct rectangle current_rect, item_rect;
@@ -1363,7 +1062,7 @@ panel_item_list_reorder(struct panel *panel,
 	else
 		wl_list_insert(&item->link, &current->link);
 
-	panel_window_list_schedule_redraw(item->panel);
+	dock_window_list_schedule_redraw(item->dock);
 }
 
 static void
@@ -1371,18 +1070,18 @@ list_item_move(struct list_item *current, int x, int y)
 {
 	struct list_item *item;
 
-	wl_list_for_each(item, &current->panel->window_list, link) {
+	wl_list_for_each(item, &current->dock->window_list, link) {
 		if (item == current)
 			continue;
 		if (item_contains_point(item, x, y)) {
-			panel_item_list_reorder(item->panel, current, item);
+			dock_item_list_reorder(item->dock, current, item);
 			return;
 		}
 	}
 }
 
 static void
-panel_list_item_button_handler(struct widget *widget,
+dock_list_item_button_handler(struct widget *widget,
 			      struct input *input, uint32_t time,
 			      uint32_t button,
 			      enum wl_pointer_button_state state, void *data)
@@ -1426,7 +1125,7 @@ panel_list_item_button_handler(struct widget *widget,
 }
 
 static struct list_item *
-panel_list_item_add(struct panel *panel, const char *icon, const char *text)
+dock_list_item_add(struct dock *dock, const char *icon, const char *text)
 {
 	struct list_item *item;
 	item = malloc(sizeof *item);
@@ -1434,38 +1133,38 @@ panel_list_item_add(struct panel *panel, const char *icon, const char *text)
 
 	item->icon = load_icon_or_fallback(icon, 0);
 
-	item->panel = panel;
-	wl_list_insert(panel->window_list.prev, &item->link);
-	panel->surface_count++;
+	item->dock = dock;
+	wl_list_insert(dock->window_list.prev, &item->link);
+	dock->surface_count++;
 
-	item->widget = widget_add_widget(panel->widget, item);
-	widget_set_enter_handler(item->widget, panel_list_item_enter_handler);
-	widget_set_leave_handler(item->widget, panel_list_item_leave_handler);
-	widget_set_button_handler(item->widget, panel_list_item_button_handler);
-	widget_set_redraw_handler(item->widget, panel_list_item_redraw_handler);
-	widget_set_motion_handler(item->widget, panel_list_item_motion_handler);
+	item->widget = widget_add_widget(dock->widget, item);
+	widget_set_enter_handler(item->widget, dock_list_item_enter_handler);
+	widget_set_leave_handler(item->widget, dock_list_item_leave_handler);
+	widget_set_button_handler(item->widget, dock_list_item_button_handler);
+	widget_set_redraw_handler(item->widget, dock_list_item_redraw_handler);
+	widget_set_motion_handler(item->widget, dock_list_item_motion_handler);
 
 	return item;
 }
 
 static void
-panel_list_item_remove(struct list_item *item)
+dock_list_item_remove(struct list_item *item)
 {
-	item->panel->surface_count--;
+	item->dock->surface_count--;
 	wl_list_remove(&item->link);
 	wl_list_remove(&item->surface_link);
 	widget_destroy(item->widget);
-	panel_window_list_schedule_redraw(item->panel);
+	dock_window_list_schedule_redraw(item->dock);
 	cairo_surface_destroy(item->icon);
 	free(item);
 }
 
 static int
-panel_list_item_exists(struct panel *panel, struct surface *surface)
+dock_list_item_exists(struct dock *dock, struct surface *surface)
 {
 	struct list_item *p_item, *s_item;
 
-	wl_list_for_each(p_item, &panel->window_list, link) {
+	wl_list_for_each(p_item, &dock->window_list, link) {
 		wl_list_for_each(s_item, &surface->item_list, surface_link) {
 			if (p_item == s_item)
 				return 1;
@@ -1479,14 +1178,14 @@ static void
 output_update_window_list(struct output *output, struct surface *surface)
 {
 	struct list_item *item, *next;
-	struct panel *panel;
+	struct dock *dock;
 
-	panel = output->panel;
+	dock = output->dock;
 
-	/* Make a list item for each panel of the surfaces output mask */
+	/* Make a list item for each dock of the surfaces output mask */
 	if ((1 << output->id) & surface->output_mask) {
-		if (!panel_list_item_exists(panel, surface)) {
-			item = panel_list_item_add(panel,
+		if (!dock_list_item_exists(dock, surface)) {
+			item = dock_list_item_add(dock,
 					DATADIR "/weston/list_item_icon.png",
 					surface->title);
 			wl_list_insert(surface->item_list.prev,
@@ -1494,16 +1193,16 @@ output_update_window_list(struct output *output, struct surface *surface)
 			item->surface = surface;
 		}
 	} else {
-		/* Remove item from panel if surface
+		/* Remove item from dock if surface
 		 * is no longer on the output */
 		wl_list_for_each_safe(item, next, &surface->item_list,
 								surface_link) {
-			if (item->panel == panel)
-				panel_list_item_remove(item);
+			if (item->dock == dock)
+				dock_list_item_remove(item);
 		}
 	}
 
-	panel_window_list_schedule_redraw(panel);
+	dock_window_list_schedule_redraw(dock);
 }
 
 static void
@@ -1512,7 +1211,7 @@ desktop_destroy_surface(struct surface *surface)
 	struct list_item *item, *next;
 
 	wl_list_for_each_safe(item, next, &surface->item_list, surface_link)
-		panel_list_item_remove(item);
+		dock_list_item_remove(item);
 
 	wl_list_remove(&surface->link);
 	free(surface->title);
@@ -1621,15 +1320,15 @@ surface_data_destroy_handler(void *data, struct surface_data *surface_data)
 	struct desktop *desktop;
 	struct surface *surface = data;
 	struct output *output;
-	struct panel *panel;
+	struct dock *dock;
 
 	desktop = surface->desktop;
 
 	surface_data_destroy(surface_data);
 
 	wl_list_for_each(output, &desktop->outputs, link) {
-		panel = output->panel;
-		wl_list_for_each_safe(item, next, &panel->window_list, link) {
+		dock = output->dock;
+		wl_list_for_each_safe(item, next, &dock->window_list, link) {
 			if (surface_data == item->surface->surface_data) {
 				desktop_destroy_surface(item->surface);
 				return;
@@ -1677,65 +1376,11 @@ static const struct surface_data_manager_listener surface_data_manager_listener 
 	surface_data_receive_surface_object
 };
 
-static struct background *
-background_create(struct desktop *desktop)
-{
-	struct background *background;
-
-	background = malloc(sizeof *background);
-	memset(background, 0, sizeof *background);
-
-	background->base.configure = background_configure;
-	background->window = window_create_custom(desktop->display);
-	background->widget = window_add_widget(background->window, background);
-	window_set_user_data(background->window, background);
-	widget_set_redraw_handler(background->widget, background_draw);
-
-	return background;
-}
-
-static int
-grab_surface_enter_handler(struct widget *widget, struct input *input,
-			   float x, float y, void *data)
-{
-	struct desktop *desktop = data;
-
-	return desktop->grab_cursor;
-}
-
-static void
-grab_surface_destroy(struct desktop *desktop)
-{
-	widget_destroy(desktop->grab_widget);
-	window_destroy(desktop->grab_window);
-}
-
-static void
-grab_surface_create(struct desktop *desktop)
-{
-	struct wl_surface *s;
-
-	desktop->grab_window = window_create_custom(desktop->display);
-	window_set_user_data(desktop->grab_window, desktop);
-
-	s = window_get_wl_surface(desktop->grab_window);
-	desktop_shell_set_grab_surface(desktop->shell, s);
-
-	desktop->grab_widget =
-		window_add_widget(desktop->grab_window, desktop);
-	/* We set the allocation to 1x1 at 0,0 so the fake enter event
-	 * at 0,0 will go to this widget. */
-	widget_set_allocation(desktop->grab_widget, 0, 0, 1, 1);
-
-	widget_set_enter_handler(desktop->grab_widget,
-				 grab_surface_enter_handler);
-}
-
 static void
 output_destroy(struct output *output)
 {
 	background_destroy(output->background);
-	panel_destroy(output->panel);
+	dock_destroy_instance(output->dock);
 	wl_output_destroy(output->output);
 	wl_list_remove(&output->link);
 
@@ -1784,11 +1429,7 @@ global_handler(struct display *display, uint32_t id,
 {
 	struct desktop *desktop = data;
 
-	if (!strcmp(interface, "desktop_shell")) {
-		desktop->shell = display_bind(desktop->display,
-					      id, &desktop_shell_interface, 1);
-		desktop_shell_add_listener(desktop->shell, &listener, desktop);
-	} else if (!strcmp(interface, "wl_output")) {
+	if (!strcmp(interface, "wl_output")) {
 		create_output(desktop, id);
 	} else if (!strcmp(interface, "surface_data_manager")) {
 		desktop->surface_data_manager =
@@ -1796,6 +1437,10 @@ global_handler(struct display *display, uint32_t id,
 					&surface_data_manager_interface, 1);
 		surface_data_manager_add_listener(desktop->surface_data_manager,
 					&surface_data_manager_listener, desktop);
+	} else if (!strcmp(interface, "dock")) {
+		desktop->dock = display_bind(desktop->display,
+					      id, &dock_interface, 1);
+		dock_add_listener(desktop->dock, &dock_listener, desktop);
 	}
 }
 
@@ -1811,7 +1456,7 @@ launcher_section_done(void *data)
 	}
 
 	wl_list_for_each(output, &desktop->outputs, link) {
-		panel_add_launcher(output->panel,
+		dock_add_launcher(output->dock,
 				   key_launcher_icon, key_launcher_path);
 	}
 
@@ -1827,7 +1472,7 @@ add_default_launcher(struct desktop *desktop)
 	struct output *output;
 
 	wl_list_for_each(output, &desktop->outputs, link)
-		panel_add_launcher(output->panel,
+		dock_add_launcher(output->dock,
 				   DATADIR "/weston/terminal.png",
 				   BINDIR "/weston-terminal");
 }
@@ -1839,7 +1484,6 @@ int main(int argc, char *argv[])
 	struct output *output;
 	int ret;
 
-	desktop.unlock_task.run = unlock_dialog_finish;
 	wl_list_init(&desktop.outputs);
 
 	desktop.display = display_create(&argc, argv);
@@ -1857,20 +1501,13 @@ int main(int argc, char *argv[])
 	wl_list_for_each(output, &desktop.outputs, link) {
 		struct wl_surface *surface;
 
-		output->panel = panel_create(desktop.display);
-		surface = window_get_wl_surface(output->panel->window);
-		desktop_shell_set_panel(desktop.shell,
-					output->output, surface);
-
-		output->background = background_create(&desktop);
-		surface = window_get_wl_surface(output->background->window);
-		desktop_shell_set_background(desktop.shell,
-					     output->output, surface);
-		panel_add_launcher(output->panel,
+		output->dock = dock_create(desktop.display);
+		surface = window_get_wl_surface(output->dock->window);
+		dock_set_dock(desktop.dock, output->output, surface);
+		/* Main menu */
+		dock_add_launcher(output->dock,
 				   DATADIR "/weston/wayland.png", NULL);
 	}
-
-	grab_surface_create(&desktop);
 
 	config_file = config_file_path("weston.ini");
 	ret = parse_config_file(config_file,
@@ -1886,11 +1523,8 @@ printf("Running main loop\n");
 printf("Well that was fun\n");
 printf("Time to cleanup\n");
 	/* Cleanup */
-	grab_surface_destroy(&desktop);
 	desktop_destroy_surfaces(&desktop);
 	desktop_destroy_outputs(&desktop);
-	if (desktop.unlock_dialog)
-		unlock_dialog_destroy(desktop.unlock_dialog);
 	desktop_shell_destroy(desktop.shell);
 	display_destroy(desktop.display);
 

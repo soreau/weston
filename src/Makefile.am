@@ -223,7 +223,9 @@ desktop_shell_la_CFLAGS = $(GCC_CFLAGS) $(COMPOSITOR_CFLAGS)
 desktop_shell_la_SOURCES =			\
 	shell.c					\
 	desktop-shell-protocol.c		\
-	desktop-shell-server-protocol.h
+	desktop-shell-server-protocol.h		\
+	dock-protocol.c				\
+	dock-server-protocol.h
 endif
 
 if ENABLE_TABLET_SHELL

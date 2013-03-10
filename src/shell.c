@@ -111,6 +111,7 @@ struct desktop_shell {
 	} child;
 
 	struct wl_resource *surface_data_manager;
+	struct wl_resource *dock;
 
 	bool locked;
 	bool showing_input_panels;
@@ -2607,6 +2608,14 @@ panel_configure(struct weston_surface *es, int32_t sx, int32_t sy, int32_t width
 }
 
 static void
+dock_configure(struct weston_surface *es, int32_t sx, int32_t sy, int32_t width, int32_t height)
+{
+	struct desktop_shell *shell = es->private;
+
+	configure_static_surface(es, &shell->panel_layer, width, height);
+}
+
+static void
 desktop_shell_set_panel(struct wl_client *client,
 			struct wl_resource *resource,
 			struct wl_resource *output_resource,
@@ -2738,6 +2747,35 @@ static const struct desktop_shell_interface desktop_shell_implementation = {
 	desktop_shell_set_lock_surface,
 	desktop_shell_unlock,
 	desktop_shell_set_grab_surface
+};
+
+static void
+dock_set_dock(struct wl_client *client,
+			struct wl_resource *resource,
+			struct wl_resource *output_resource,
+			struct wl_resource *surface_resource)
+{
+	struct desktop_shell *shell = resource->data;
+	struct weston_surface *surface = surface_resource->data;
+
+	if (surface->configure) {
+		wl_resource_post_error(surface_resource,
+				       WL_DISPLAY_ERROR_INVALID_OBJECT,
+				       "surface role already assigned");
+		return;
+	}
+
+	surface->configure = dock_configure;
+	surface->private = shell;
+	surface->output = output_resource->data;
+	dock_send_configure(resource, 0,
+				     surface_resource,
+				     surface->output->width,
+				     surface->output->height);
+}
+
+static const struct dock_interface dock_implementation = {
+	dock_set_dock
 };
 
 static void
@@ -3742,6 +3780,29 @@ bind_surface_data_manager(struct wl_client *client,
 }
 
 static void
+unbind_dock(struct wl_resource *resource)
+{
+	struct desktop_shell *shell = resource->data;
+
+	shell->dock = NULL;
+	free(resource);
+}
+
+static void
+bind_dock(struct wl_client *client,
+		   void *data, uint32_t version, uint32_t id)
+{
+	struct desktop_shell *shell = data;
+	struct wl_resource *resource;
+
+	resource = wl_client_add_object(client, &dock_interface,
+					&dock_implementation, id, shell);
+
+	resource->destroy = unbind_dock;
+	shell->dock = resource;
+}
+
+static void
 screensaver_configure(struct weston_surface *surface, int32_t sx, int32_t sy, int32_t width, int32_t height)
 {
 	struct desktop_shell *shell = surface->private;
@@ -4584,6 +4645,9 @@ module_init(struct weston_compositor *ec,
 
 	if (wl_display_add_global(ec->wl_display, &workspace_manager_interface,
 				  shell, bind_workspace_manager) == NULL)
+		return -1;
+	if (wl_display_add_global(ec->wl_display, &dock_interface,
+				  shell, bind_dock) == NULL)
 		return -1;
 	if (wl_display_add_global(ec->wl_display, &surface_data_manager_interface,
 				  shell, bind_surface_data_manager) == NULL)

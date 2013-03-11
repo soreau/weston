@@ -273,10 +273,10 @@ dock_launcher_redraw_handler(struct widget *widget, void *data)
 static int
 dock_launcher_motion_handler(struct widget *widget, struct input *input,
 			      uint32_t time, float x, float y, void *data)
-{
+{/*
 	struct dock_launcher *launcher = data;
 
-	widget_set_tooltip(widget, basename((char *)launcher->path), x, y);
+	widget_set_tooltip(widget, basename((char *)launcher->path), x, y);*/
 
 	return CURSOR_LEFT_PTR;
 }
@@ -336,7 +336,7 @@ dock_launcher_leave_handler(struct widget *widget,
 	struct dock_launcher *launcher = data;
 
 	launcher->focused = 0;
-	widget_destroy_tooltip(widget);
+	//widget_destroy_tooltip(widget);
 	widget_schedule_redraw(widget);
 }
 
@@ -505,10 +505,10 @@ dock_window_list_schedule_redraw(struct dock *dock)
 static void
 dock_resize_handler(struct widget *widget,
 		     int32_t width, int32_t height, void *data)
-{printf("%s called: %d, %d\n", __func__, width, height);
+{
 	struct dock_launcher *launcher;
 	struct rectangle launcher_rect;
-	struct rectangle clock_rect;
+//	struct rectangle clock_rect;
 	struct dock *dock = data;
 	int x, y, w, h;
 

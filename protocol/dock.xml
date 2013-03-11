@@ -8,6 +8,7 @@
     <request name="set_dock">
       <arg name="output" type="object" interface="wl_output"/>
       <arg name="surface" type="object" interface="wl_surface"/>
+      <arg name="vertical" type="int"/>
     </request>
 
     <event name="configure">

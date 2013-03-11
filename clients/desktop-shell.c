@@ -1750,13 +1750,13 @@ global_handler(struct display *display, uint32_t id,
 		desktop_shell_add_listener(desktop->shell, &listener, desktop);
 	} else if (!strcmp(interface, "wl_output")) {
 		create_output(desktop, id);
-	}/* else if (!strcmp(interface, "surface_data_manager")) {
+	} else if (!strcmp(interface, "surface_data_manager")) {
 		desktop->surface_data_manager =
 				display_bind(display, id,
 					&surface_data_manager_interface, 1);
 		surface_data_manager_add_listener(desktop->surface_data_manager,
 					&surface_data_manager_listener, desktop);
-	}*/
+	}
 }
 
 static void

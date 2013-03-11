@@ -99,6 +99,7 @@ struct dock {
 	uint32_t surface_count;
 	struct rgba focused_item;
 	struct dock_clock *clock;
+	int vertical;
 };
 
 struct background {
@@ -504,7 +505,7 @@ dock_window_list_schedule_redraw(struct dock *dock)
 static void
 dock_resize_handler(struct widget *widget,
 		     int32_t width, int32_t height, void *data)
-{
+{printf("%s called: %d, %d\n", __func__, width, height);
 	struct dock_launcher *launcher;
 	struct rectangle launcher_rect;
 	struct rectangle clock_rect;
@@ -515,21 +516,26 @@ dock_resize_handler(struct widget *widget,
 	y = 16;
 
 	launcher_rect.x = x;
+	launcher_rect.y = y;
 
 	wl_list_for_each(launcher, &dock->launcher_list, link) {
 		w = cairo_image_surface_get_width(launcher->icon);
 		h = cairo_image_surface_get_height(launcher->icon);
-/*		
-		widget_set_allocation(launcher->widget,
-				      x - 4 , y + 4, w + 1, h + 1);
-		y += h + 9;*/
-		widget_set_allocation(launcher->widget,
-				      x + 4, y - 4, w + 1, h + 1);
-		x += w + 9;
+
+		if (dock->vertical) {
+			widget_set_allocation(launcher->widget,
+					      x - 4 , y + 4, w + 1, h + 1);
+			y += h + 9;
+		} else {
+			widget_set_allocation(launcher->widget,
+					      x + 4, y - 4, w + 1, h + 1);
+			x += w + 9;
+		}
 	}
 
 	launcher_rect.width = x - launcher_rect.x;
-
+	launcher_rect.height = y - launcher_rect.y;
+/*
 	w=170;
 	h=20;
 
@@ -545,7 +551,7 @@ dock_resize_handler(struct widget *widget,
 					dock->window_list_rect.x -
 					(clock_rect.width + 20);
 	dock->window_list_rect.height = 28;
-	dock_window_list_schedule_redraw(dock);
+	dock_window_list_schedule_redraw(dock);*/
 }
 
 static void
@@ -557,7 +563,10 @@ dock_configure(void *data,
 	struct resize *resize = window_get_user_data(window);
 	struct dock *dock_mock = container_of(resize, struct dock, base);
 
-	window_schedule_resize(dock_mock->window, width, 96);
+	if (dock_mock->vertical)
+		window_schedule_resize(dock_mock->window, 96, height);
+	else
+		window_schedule_resize(dock_mock->window, width, 96);
 }
 
 static void
@@ -610,7 +619,7 @@ dock_set_list_item_focus_color(struct dock *dock)
 }
 
 static struct dock *
-dock_create(struct display *display)
+dock_create_instance(struct display *display, int vertical)
 {
 	struct dock *dock;
 
@@ -633,6 +642,8 @@ dock_create(struct display *display)
 	dock->surface_count = 0;
 	dock_set_list_item_focus_color(dock);
 	dock_add_clock(dock);
+
+	dock->vertical = vertical;
 
 	return dock;
 }
@@ -1483,7 +1494,7 @@ int main(int argc, char *argv[])
 	struct desktop desktop = { 0 };
 	char *config_file;
 	struct output *output;
-	int ret;
+	int ret, vertical = 0;
 
 	wl_list_init(&desktop.outputs);
 
@@ -1492,6 +1503,9 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "failed to create display: %m\n");
 		return -1;
 	}
+
+	if ((argc > 1) && (!strcmp(argv[1], "--vertical") || !strcmp(argv[1], "-v"))) { printf("setting vertical\n");
+		vertical = 1;}
 
 	wl_list_init(&desktop.surfaces);
 	desktop.output_count = 0;
@@ -1502,9 +1516,9 @@ int main(int argc, char *argv[])
 	wl_list_for_each(output, &desktop.outputs, link) {
 		struct wl_surface *surface;
 
-		output->dock = dock_create(desktop.display);
+		output->dock = dock_create_instance(desktop.display, vertical);
 		surface = window_get_wl_surface(output->dock->window);
-		dock_set_dock(desktop.dock, output->output, surface);
+		dock_set_dock(desktop.dock, output->output, surface, vertical);
 		/* Main menu */
 		dock_add_launcher(output->dock,
 				   DATADIR "/weston/wayland.png", NULL);

@@ -99,7 +99,9 @@ struct desktop_shell {
 	struct weston_layer input_panel_layer;
 
 	struct wl_listener pointer_focus_listener;
+	struct weston_surface *panel_surface;
 	struct weston_surface *grab_surface;
+	struct weston_surface *dock_surface;
 
 	struct {
 		struct weston_process process;
@@ -112,6 +114,7 @@ struct desktop_shell {
 
 	struct wl_resource *surface_data_manager;
 	struct wl_resource *dock;
+	int dock_vertical;
 
 	bool locked;
 	bool showing_input_panels;
@@ -1933,7 +1936,7 @@ get_output_panel_height(struct desktop_shell *shell,
 		return 0;
 
 	wl_list_for_each(surface, &shell->panel_layer.surface_list, layer_link) {
-		if (surface->output == output) {
+		if (shell->panel_surface == surface) {
 			panel_height = surface->geometry.height;
 			break;
 		}
@@ -2544,21 +2547,24 @@ terminate_screensaver(struct desktop_shell *shell)
 }
 
 static void
-configure_static_surface(struct weston_surface *es, struct weston_layer *layer, int32_t width, int32_t height)
+configure_static_surface(struct weston_surface *es, struct weston_layer *layer,
+			int32_t sx, int32_t sy, int32_t width, int32_t height)
 {
 	struct weston_surface *s, *next;
 
 	if (width == 0)
 		return;
-/*
+
+	if (0 && !sy)
 	wl_list_for_each_safe(s, next, &layer->surface_list, layer_link) {
 		if (s->output == es->output && s != es) {
 			weston_surface_unmap(s);
 			s->configure = NULL;
 		}
 	}
-*/
-	weston_surface_configure(es, es->output->x, es->output->y, width, height);
+
+	weston_surface_configure(es, es->output->x + sx, es->output->y + sy,
+					width, height);
 
 	if (wl_list_empty(&es->layer_link)) {
 		wl_list_insert(&layer->surface_list, &es->layer_link);
@@ -2571,7 +2577,7 @@ background_configure(struct weston_surface *es, int32_t sx, int32_t sy, int32_t 
 {
 	struct desktop_shell *shell = es->private;
 
-	configure_static_surface(es, &shell->background_layer, width, height);
+	configure_static_surface(es, &shell->background_layer, 0, 0, width, height);
 }
 
 static void
@@ -2593,6 +2599,7 @@ desktop_shell_set_background(struct wl_client *client,
 	surface->configure = background_configure;
 	surface->private = shell;
 	surface->output = output_resource->data;
+	shell->dock_surface = surface;
 	desktop_shell_send_configure(resource, 0,
 				     surface_resource,
 				     surface->output->width,
@@ -2604,15 +2611,21 @@ panel_configure(struct weston_surface *es, int32_t sx, int32_t sy, int32_t width
 {
 	struct desktop_shell *shell = es->private;
 
-	configure_static_surface(es, &shell->panel_layer, width, height);
+	configure_static_surface(es, &shell->panel_layer, 0, 0, width, height);
 }
 
 static void
 dock_configure(struct weston_surface *es, int32_t sx, int32_t sy, int32_t width, int32_t height)
 {
 	struct desktop_shell *shell = es->private;
+	int panel_height = get_output_panel_height(shell, es->output);
 
-	configure_static_surface(es, &shell->panel_layer, width, height);
+	if (shell->dock_vertical) {
+		configure_static_surface(es, &shell->panel_layer, 0, panel_height,
+								width, height);
+	}
+	else {
+		configure_static_surface(es, &shell->panel_layer, 0, 0, width, height);}
 }
 
 static void
@@ -2634,6 +2647,7 @@ desktop_shell_set_panel(struct wl_client *client,
 	surface->configure = panel_configure;
 	surface->private = shell;
 	surface->output = output_resource->data;
+	shell->panel_surface = surface;
 	desktop_shell_send_configure(resource, 0,
 				     surface_resource,
 				     surface->output->width,
@@ -2753,10 +2767,12 @@ static void
 dock_set_dock(struct wl_client *client,
 			struct wl_resource *resource,
 			struct wl_resource *output_resource,
-			struct wl_resource *surface_resource)
+			struct wl_resource *surface_resource,
+			int32_t vertical)
 {
 	struct desktop_shell *shell = resource->data;
 	struct weston_surface *surface = surface_resource->data;
+	int panel_height = get_output_panel_height(shell, surface->output);
 
 	if (surface->configure) {
 		wl_resource_post_error(surface_resource,
@@ -2768,10 +2784,12 @@ dock_set_dock(struct wl_client *client,
 	surface->configure = dock_configure;
 	surface->private = shell;
 	surface->output = output_resource->data;
+	shell->dock_vertical = vertical;
 	dock_send_configure(resource, 0,
 				     surface_resource,
 				     surface->output->width,
-				     surface->output->height);
+				     surface->output->height -
+				     (vertical ? panel_height : 0));
 }
 
 static const struct dock_interface dock_implementation = {
@@ -3783,7 +3801,14 @@ static void
 unbind_dock(struct wl_resource *resource)
 {
 	struct desktop_shell *shell = resource->data;
+	
+	if (0 && !shell->dock_vertical) {
+		wl_list_insert(&shell->panel_layer.surface_list, &shell->panel_surface->layer_link);
+		shell->panel_surface->configure = panel_configure;
+		weston_compositor_schedule_repaint(shell->compositor);
+	}
 
+	shell->dock_vertical = 0;
 	shell->dock = NULL;
 	free(resource);
 }

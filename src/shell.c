@@ -185,7 +185,7 @@ struct shell_surface {
 	struct desktop_shell *shell;
 
 	enum shell_surface_type type, next_type, saved_type;
-	char *title, *class;
+	char *title, *class, *cmdline;
 	int32_t saved_x, saved_y;
 	bool saved_position_valid;
 	bool saved_rotation_valid;
@@ -228,7 +228,6 @@ struct shell_surface {
 
 	const struct weston_shell_client *client;
 	struct wl_resource *surface_data;
-	char *cmdline;
 };
 
 struct shell_grab {
@@ -1721,6 +1720,17 @@ send_surface_data_title(struct weston_surface *surface)
 }
 
 static void
+send_surface_data_cmdline(struct weston_surface *surface)
+{
+	struct shell_surface *shsurf = get_shell_surface(surface);
+
+	if (shsurf && shsurf->surface_data)
+		surface_data_send_cmdline(shsurf->surface_data,
+						shsurf->cmdline == NULL ?
+						"(null)" : shsurf->cmdline);
+}
+
+static void
 send_surface_data_minimized_state(struct weston_surface *surface)
 {
 	struct shell_surface *shsurf = get_shell_surface(surface);
@@ -2357,6 +2367,7 @@ destroy_shell_surface(struct shell_surface *shsurf)
 	shsurf->surface->configure = NULL;
 	ping_timer_destroy(shsurf);
 	free(shsurf->title);
+	free(shsurf->cmdline);
 
 	wl_list_remove(&shsurf->link);
 	free(shsurf);
@@ -2493,9 +2504,6 @@ create_shell_surface(void *data, struct weston_surface *surface,
 	shsurf->client = client;
 
 	shsurf->cmdline = shell_surface_get_cmdline_string(shsurf);
-
-	printf("cmdline = %s\n", shsurf->cmdline);
-	free(shsurf->cmdline);
 
 	return shsurf;
 }
@@ -2875,12 +2883,14 @@ surface_data_send_all_info(struct desktop_shell *shell)
 		send_surface_data_focused_state(surface);
 		send_surface_data_output_mask(surface);
 		send_surface_data_title(surface);
+		send_surface_data_cmdline(surface);
 	}
 	wl_list_for_each(surface, &ws->minimized_list, layer_link) {
 		send_surface_data_minimized_state(surface);
 		send_surface_data_focused_state(surface);
 		send_surface_data_output_mask(surface);
 		send_surface_data_title(surface);
+		send_surface_data_cmdline(surface);
 	}
 }
 

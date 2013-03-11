@@ -69,7 +69,7 @@ struct surface {
 	struct surface_data *surface_data;
 	struct desktop *desktop;
 	uint32_t output_mask;
-	char *title;
+	char *title, *cmdline;
 	int maximized, minimized, focused;
 
 	/* One window list item per dock of the surface's output_mask */
@@ -1226,6 +1226,7 @@ desktop_destroy_surface(struct surface *surface)
 		dock_list_item_remove(item);
 
 	wl_list_remove(&surface->link);
+	free(surface->cmdline);
 	free(surface->title);
 	free(surface);
 }
@@ -1349,13 +1350,31 @@ surface_data_destroy_handler(void *data, struct surface_data *surface_data)
 	}
 }
 
+static void
+surface_data_set_cmdline(void *data,
+				struct surface_data *surface_data,
+				const char *cmdline)
+{
+	struct desktop *desktop;
+	struct surface *surface = data;
+
+	desktop = surface->desktop;
+
+	if (surface->cmdline)
+		free(surface->cmdline);
+	surface->cmdline = strdup(cmdline);
+
+	desktop_update_list_items(desktop, surface);
+}
+
 static const struct surface_data_listener surface_data_listener = {
 	surface_data_set_output_mask,
 	surface_data_set_title,
 	surface_data_set_maximized_state,
 	surface_data_set_minimized_state,
 	surface_data_set_focused_state,
-	surface_data_destroy_handler
+	surface_data_destroy_handler,
+	surface_data_set_cmdline
 };
 
 static void
@@ -1377,6 +1396,7 @@ surface_data_receive_surface_object(void *data,
 	surface->surface_data = surface_data;
 	surface->desktop = desktop;
 	surface->title = strdup("unknown");
+	surface->cmdline = strdup("(null)");
 	surface->output_mask = 1;
 	wl_list_init(&surface->item_list);
 	wl_list_insert(&desktop->surfaces, &surface->link);

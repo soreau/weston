@@ -138,6 +138,13 @@
 	request.
       </description>
     </event>
+    <event name="cmdline">
+      <description summary="send the surface object cmdline to the shell">
+	The shell must send the string found in /proc/$pid/cmdline where $pid
+	is the process id of the shell_surface client process.
+      </description>
+      <arg name="title" type="string"/>
+    </event>
   </interface>
 
   <interface name="surface_data_manager" version="1">

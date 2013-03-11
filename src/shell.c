@@ -228,6 +228,7 @@ struct shell_surface {
 
 	const struct weston_shell_client *client;
 	struct wl_resource *surface_data;
+	char *cmdline;
 };
 
 struct shell_grab {
@@ -2397,8 +2398,51 @@ get_shell_surface(struct weston_surface *surface)
 		return NULL;
 }
 
+static void
+shell_surface_get_pid(struct shell_surface *shsurf, pid_t *pid)
+{
+	struct wl_client *target_client;
+	struct wl_surface *target_surface;
+
+	target_surface = &shsurf->surface->surface;
+
+	if (target_surface) {
+		target_client = target_surface->resource.client;
+		wl_client_get_credentials(target_client, pid, NULL, NULL);
+	}
+}
+
+static char *
+shell_surface_get_cmdline_string(struct shell_surface *shsurf)
+{
+	FILE *fp;
+	pid_t pid;
+	int i = 0;
+	char *cmdline, c;
+	char cmdline_file[128];
+
+	cmdline = calloc(1, 128);
+	if (!cmdline)
+		return NULL;
+
+	shell_surface_get_pid(shsurf, &pid);
+
+	sprintf(cmdline_file, "/proc/%d/cmdline", pid);
+
+	fp = fopen(cmdline_file, "r");
+	if (!fp)
+		return NULL;
+
+	while (fread(&c, 1, 1, fp))
+		cmdline[i++] = c;
+
+	fclose(fp);
+
+	return cmdline;
+}
+
 static 	struct shell_surface *
-create_shell_surface(void *shell, struct weston_surface *surface,
+create_shell_surface(void *data, struct weston_surface *surface,
 		     const struct weston_shell_client *client)
 {
 	struct shell_surface *shsurf;
@@ -2417,7 +2461,7 @@ create_shell_surface(void *shell, struct weston_surface *surface,
 	surface->configure = shell_surface_configure;
 	surface->private = shsurf;
 
-	shsurf->shell = (struct desktop_shell *) shell;
+	shsurf->shell = (struct desktop_shell *) data;
 	shsurf->unresponsive = 0;
 	shsurf->saved_position_valid = false;
 	shsurf->saved_rotation_valid = false;
@@ -2447,6 +2491,11 @@ create_shell_surface(void *shell, struct weston_surface *surface,
 	shsurf->next_type = SHELL_SURFACE_NONE;
 
 	shsurf->client = client;
+
+	shsurf->cmdline = shell_surface_get_cmdline_string(shsurf);
+
+	printf("cmdline = %s\n", shsurf->cmdline);
+	free(shsurf->cmdline);
 
 	return shsurf;
 }

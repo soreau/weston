@@ -258,12 +258,13 @@ dock_launcher_redraw_handler(struct widget *widget, void *data)
 	cairo_set_source_surface(cr, launcher->icon,
 				 allocation.x, allocation.y);
 
+	cairo_paint(cr);
+
 	if (!launcher->focused) {
-		cairo_set_operator(cr, CAIRO_OPERATOR_HSL_COLOR);
-		cairo_set_source_rgba (cr, 0.8, 0.6, 0.5, 0.87);
+		cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+		cairo_set_source_rgba (cr, 0.4, 0.3, 0.2, 0.9);
 		cairo_mask_surface (cr, launcher->icon, allocation.x, allocation.y);
-	} else
-		cairo_paint(cr);
+	}
 
 	cairo_destroy(cr);
 }

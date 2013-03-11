@@ -2550,14 +2550,14 @@ configure_static_surface(struct weston_surface *es, struct weston_layer *layer, 
 
 	if (width == 0)
 		return;
-
+/*
 	wl_list_for_each_safe(s, next, &layer->surface_list, layer_link) {
 		if (s->output == es->output && s != es) {
 			weston_surface_unmap(s);
 			s->configure = NULL;
 		}
 	}
-
+*/
 	weston_surface_configure(es, es->output->x, es->output->y, width, height);
 
 	if (wl_list_empty(&es->layer_link)) {
@@ -3736,11 +3736,11 @@ bind_desktop_shell(struct wl_client *client,
 					&desktop_shell_implementation,
 					id, shell);
 
-//	if (client == shell->child.client) {
+	if (client == shell->child.client) {
 		resource->destroy = unbind_desktop_shell;
 		shell->child.desktop_shell = resource;
 		return;
-//	}
+	}
 
 	wl_resource_post_error(resource, WL_DISPLAY_ERROR_INVALID_OBJECT,
 			       "permission to bind desktop_shell denied");

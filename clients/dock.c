@@ -347,15 +347,43 @@ dock_launcher_button_handler(struct widget *widget,
 			      enum wl_pointer_button_state state, void *data)
 {
 	struct dock_launcher *launcher;
+	struct wl_list *window_list;
+	struct list_item *item;
+	int match_found = 0;
+
+	widget_schedule_redraw(widget);
+
+	if (state != WL_POINTER_BUTTON_STATE_RELEASED)
+		return;
 
 	launcher = widget_get_user_data(widget);
-	widget_schedule_redraw(widget);
-	if (state == WL_POINTER_BUTTON_STATE_RELEASED) {
-		if (launcher->main_menu_button)
-			printf("main menu clicked\n");
-		else
-			dock_launcher_activate(launcher);
+
+	if (launcher->main_menu_button) {
+		printf("main menu clicked\n");
+		return;
 	}
+
+	if (button == BTN_MIDDLE) {
+		dock_launcher_activate(launcher);
+		return;
+	}
+
+	if (button != BTN_LEFT)
+		return;
+
+	window_list = &launcher->dock->window_list;
+
+	wl_list_for_each(item, window_list, link) {
+		char *str1 = basename(launcher->path);
+		char *str2 = basename(item->surface->cmdline);
+		if (!strcmp(str1, str2)) {
+			surface_data_focus(item->surface->surface_data);
+			item->surface->focused = 1;
+			match_found = 1;
+		}
+	}
+	if (!match_found)
+		dock_launcher_activate(launcher);
 }
 
 static void
@@ -1396,7 +1424,7 @@ surface_data_receive_surface_object(void *data,
 	surface->surface_data = surface_data;
 	surface->desktop = desktop;
 	surface->title = strdup("unknown");
-	surface->cmdline = strdup("(null)");
+	surface->cmdline = strdup("unknown");
 	surface->output_mask = 1;
 	wl_list_init(&surface->item_list);
 	wl_list_insert(&desktop->surfaces, &surface->link);

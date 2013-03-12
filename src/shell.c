@@ -1889,6 +1889,7 @@ set_surface_type(struct shell_surface *shsurf)
 	if (surface_is_window_list_candidate(shsurf->surface))
 		create_surface_data(shsurf->shell, shsurf);
 	send_surface_data_title(surface);
+	send_surface_data_cmdline(surface);
 }
 
 static void

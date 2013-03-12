@@ -99,6 +99,7 @@ struct dock {
 	uint32_t surface_count;
 	struct rgba focused_item;
 	struct dock_clock *clock;
+	void *last_launcher;
 	int vertical;
 };
 
@@ -349,7 +350,9 @@ dock_launcher_button_handler(struct widget *widget,
 	struct dock_launcher *launcher;
 	struct wl_list *window_list;
 	struct list_item *item;
+	char *str1, *str2;
 	int match_found = 0;
+	int minimize_state = 0;
 
 	widget_schedule_redraw(widget);
 
@@ -372,18 +375,38 @@ dock_launcher_button_handler(struct widget *widget,
 		return;
 
 	window_list = &launcher->dock->window_list;
+	str1 = basename(launcher->path);
 
 	wl_list_for_each(item, window_list, link) {
-		char *str1 = basename(launcher->path);
-		char *str2 = basename(item->surface->cmdline);
-		if (!strcmp(str1, str2)) {
-			surface_data_focus(item->surface->surface_data);
-			item->surface->focused = 1;
+		str2 = basename(item->surface->cmdline);
+		if (item->surface->minimized)
+			minimize_state = 1;
+		if (!strcmp(str1, str2))
 			match_found = 1;
+	}
+
+	if (!match_found) {
+		dock_launcher_activate(launcher);
+		goto out;
+	}
+
+	wl_list_for_each(item, window_list, link) {
+		str2 = basename(item->surface->cmdline);
+		if (!strcmp(str1, str2)) {
+			if (launcher->dock->last_launcher == launcher) {
+				if (minimize_state)
+					surface_data_unminimize(item->surface->surface_data);
+				else
+					surface_data_minimize(item->surface->surface_data);
+				item->surface->minimized = !minimize_state;
+			} else {
+				surface_data_focus(item->surface->surface_data);
+				item->surface->focused = 1;
+			}
 		}
 	}
-	if (!match_found)
-		dock_launcher_activate(launcher);
+out:
+	launcher->dock->last_launcher = launcher;
 }
 
 static void

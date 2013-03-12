@@ -49,6 +49,8 @@
 
 extern char **environ; /* defined by libc */
 
+static int option_debug;
+
 struct desktop {
 	struct display *display;
 	struct desktop_shell *shell;
@@ -56,6 +58,7 @@ struct desktop {
 	struct wl_list surfaces;
 	struct wl_list outputs;
 	uint32_t output_count;
+	int debug;
 
 	struct window *grab_window;
 	struct widget *grab_widget;
@@ -93,6 +96,7 @@ struct dock {
 	struct resize base;
 	struct window *window;
 	struct widget *widget;
+	struct output *output;
 	struct wl_list launcher_list;
 	struct wl_list window_list;
 	struct rectangle window_list_rect;
@@ -136,6 +140,7 @@ struct dock_launcher {
 	cairo_surface_t *icon;
 	int focused, pressed;
 	int main_menu_button;
+	int client_running;
 	char *path;
 	struct wl_list link;
 	struct wl_array envp;
@@ -247,6 +252,7 @@ dock_launcher_redraw_handler(struct widget *widget, void *data)
 	cairo_surface_t *surface;
 	struct rectangle allocation;
 	cairo_t *cr;
+	int x, y;
 
 	surface = window_get_surface(launcher->dock->window);
 	cr = cairo_create(surface);
@@ -266,6 +272,72 @@ dock_launcher_redraw_handler(struct widget *widget, void *data)
 		cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
 		cairo_set_source_rgba (cr, 0.4, 0.3, 0.2, 0.9);
 		cairo_mask_surface (cr, launcher->icon, allocation.x, allocation.y);
+	}
+
+	if (option_debug) {
+		x = y = 0;
+		if (launcher->client_running)
+			cairo_set_source_rgba (cr, 0.0, 1.0, 0.0, 1.0);
+		else
+			cairo_set_source_rgba (cr, 1.0, 0.0, 0.0, 1.0);
+		cairo_rectangle(cr, allocation.x, allocation.y, 10, 10);
+		cairo_fill(cr);
+
+		cairo_set_source_rgba (cr, 0.5, 0.5, 0.5, 1.0);
+		cairo_set_line_width(cr, 1);
+		cairo_rectangle(cr, allocation.x, allocation.y, 10, 10);
+		cairo_stroke(cr);
+
+		if (launcher->dock->vertical)
+			y += 15;
+		else
+			x += 15;
+/*
+		if (what_surface_minimized?)
+			cairo_set_source_rgba (cr, 0.0, 1.0, 0.0, 1.0);
+		else
+			cairo_set_source_rgba (cr, 1.0, 0.0, 0.0, 1.0);
+		cairo_rectangle(cr, allocation.x, allocation.y, 10, 10);
+		cairo_fill(cr);
+*/
+		cairo_set_source_rgba (cr, 0.5, 0.5, 0.5, 1.0);
+		cairo_set_line_width(cr, 1);
+		cairo_rectangle(cr, allocation.x + x, allocation.y + y, 10, 10);
+		cairo_stroke(cr);
+
+		if (launcher->dock->vertical)
+			y += 15;
+		else
+			x += 15;
+/*
+		if (what_surface_maximized?)
+			cairo_set_source_rgba (cr, 0.0, 1.0, 0.0, 1.0);
+		else
+			cairo_set_source_rgba (cr, 1.0, 0.0, 0.0, 1.0);
+		cairo_rectangle(cr, allocation.x, allocation.y, 10, 10);
+		cairo_fill(cr);
+*/
+		cairo_set_source_rgba (cr, 0.5, 0.5, 0.5, 1.0);
+		cairo_set_line_width(cr, 1);
+		cairo_rectangle(cr, allocation.x + x, allocation.y + y, 10, 10);
+		cairo_stroke(cr);
+
+		if (launcher->dock->vertical)
+			y += 15;
+		else
+			x += 15;
+/*
+		if (what_surface_focused?)
+			cairo_set_source_rgba (cr, 0.0, 1.0, 0.0, 1.0);
+		else
+			cairo_set_source_rgba (cr, 1.0, 0.0, 0.0, 1.0);
+		cairo_rectangle(cr, allocation.x, allocation.y, 10, 10);
+		cairo_fill(cr);
+*/
+		cairo_set_source_rgba (cr, 0.5, 0.5, 0.5, 1.0);
+		cairo_set_line_width(cr, 1);
+		cairo_rectangle(cr, allocation.x + x, allocation.y + y, 10, 10);
+		cairo_stroke(cr);
 	}
 
 	cairo_destroy(cr);
@@ -341,12 +413,52 @@ dock_launcher_leave_handler(struct widget *widget,
 	widget_schedule_redraw(widget);
 }
 
+static int
+dock_launcher_detect_processes(struct dock_launcher *launcher)
+{
+	struct dock *dock = launcher->dock;
+	struct wl_list *window_list = &dock->window_list;
+	struct list_item *item;
+	int match_found = 0;
+	char *str1, *str2;
+
+	str1 = basename(launcher->path);
+	wl_list_for_each(item, window_list, link) {
+		str2 = basename(item->surface->cmdline);
+		if (!strcmp(str1, str2))
+			match_found = 1;
+	}
+
+	if (!launcher->main_menu_button)
+		launcher->client_running = match_found;
+
+	return match_found;
+}
+
+static int
+dock_launcher_minimized_member(struct dock_launcher *launcher)
+{
+	struct wl_list *window_list = &launcher->dock->window_list;
+	struct list_item *item;
+	char *str1, *str2;
+
+	str1 = basename(launcher->path);
+	wl_list_for_each(item, window_list, link) {
+		str2 = basename(item->surface->cmdline);
+		if (!strcmp(str1, str2) &&item->surface->minimized)
+			return 1;
+	}
+
+	return 0;
+}
+
 static void
 dock_launcher_button_handler(struct widget *widget,
 			      struct input *input, uint32_t time,
 			      uint32_t button,
 			      enum wl_pointer_button_state state, void *data)
 {
+	struct dock *dock;
 	struct dock_launcher *launcher;
 	struct wl_list *window_list;
 	struct list_item *item;
@@ -360,40 +472,38 @@ dock_launcher_button_handler(struct widget *widget,
 		return;
 
 	launcher = widget_get_user_data(widget);
+	dock = launcher->dock;
 
 	if (launcher->main_menu_button) {
-		printf("main menu clicked\n");
+		launcher->client_running = !launcher->client_running;
+		printf("main menu clicked: %s\n",
+			launcher->client_running ? "show" : "hide");
 		return;
 	}
 
 	if (button == BTN_MIDDLE) {
 		dock_launcher_activate(launcher);
-		return;
+		goto out;
 	}
 
 	if (button != BTN_LEFT)
 		return;
 
-	window_list = &launcher->dock->window_list;
-	str1 = basename(launcher->path);
-
-	wl_list_for_each(item, window_list, link) {
-		str2 = basename(item->surface->cmdline);
-		if (item->surface->minimized)
-			minimize_state = 1;
-		if (!strcmp(str1, str2))
-			match_found = 1;
-	}
+	match_found = dock_launcher_detect_processes(launcher);
+	minimize_state = dock_launcher_minimized_member(launcher);
 
 	if (!match_found) {
 		dock_launcher_activate(launcher);
 		goto out;
 	}
 
+	str1 = basename(launcher->path);
+	window_list = &dock->window_list;
+
 	wl_list_for_each(item, window_list, link) {
 		str2 = basename(item->surface->cmdline);
 		if (!strcmp(str1, str2)) {
-			if (launcher->dock->last_launcher == launcher) {
+			if (dock->last_launcher == launcher) {
 				if (minimize_state)
 					surface_data_unminimize(item->surface->surface_data);
 				else
@@ -406,7 +516,7 @@ dock_launcher_button_handler(struct widget *widget,
 		}
 	}
 out:
-	launcher->dock->last_launcher = launcher;
+	dock->last_launcher = launcher;
 }
 
 static void
@@ -767,49 +877,46 @@ dock_add_launcher(struct dock *dock, const char *icon, const char *path)
 	launcher = malloc(sizeof *launcher);
 	memset(launcher, 0, sizeof *launcher);
 	launcher->icon = load_icon_or_fallback(icon, 1);
-	if (path) {
-		launcher->path = strdup(path);
-		launcher->main_menu_button = 0;
 
-		wl_array_init(&launcher->envp);
-		wl_array_init(&launcher->argv);
-		for (i = 0; environ[i]; i++) {
-			ps = wl_array_add(&launcher->envp, sizeof *ps);
-			*ps = environ[i];
-		}
-		j = 0;
+	launcher->path = strdup(path);
+	launcher->main_menu_button = 0;
 
-		start = launcher->path;
-		while (*start) {
-			for (p = start, eq = NULL; *p && !isspace(*p); p++)
-				if (*p == '=')
-					eq = p;
+	wl_array_init(&launcher->envp);
+	wl_array_init(&launcher->argv);
+	for (i = 0; environ[i]; i++) {
+		ps = wl_array_add(&launcher->envp, sizeof *ps);
+		*ps = environ[i];
+	}
+	j = 0;
 
-			if (eq && j == 0) {
-				ps = launcher->envp.data;
-				for (k = 0; k < i; k++)
-					if (strncmp(ps[k], start, eq - start) == 0) {
-						ps[k] = start;
-						break;
-					}
-				if (k == i) {
-					ps = wl_array_add(&launcher->envp, sizeof *ps);
-					*ps = start;
-					i++;
+	start = launcher->path;
+	while (*start) {
+		for (p = start, eq = NULL; *p && !isspace(*p); p++)
+			if (*p == '=')
+				eq = p;
+
+		if (eq && j == 0) {
+			ps = launcher->envp.data;
+			for (k = 0; k < i; k++)
+				if (strncmp(ps[k], start, eq - start) == 0) {
+					ps[k] = start;
+					break;
 				}
-			} else {
-				ps = wl_array_add(&launcher->argv, sizeof *ps);
+			if (k == i) {
+				ps = wl_array_add(&launcher->envp, sizeof *ps);
 				*ps = start;
-				j++;
+				i++;
 			}
-
-			while (*p && isspace(*p))
-				*p++ = '\0';
-
-			start = p;
+		} else {
+			ps = wl_array_add(&launcher->argv, sizeof *ps);
+			*ps = start;
+			j++;
 		}
-	} else {
-		launcher->main_menu_button = 1;
+
+		while (*p && isspace(*p))
+			*p++ = '\0';
+
+		start = p;
 	}
 
 	ps = wl_array_add(&launcher->envp, sizeof *ps);
@@ -817,6 +924,36 @@ dock_add_launcher(struct dock *dock, const char *icon, const char *path)
 	ps = wl_array_add(&launcher->argv, sizeof *ps);
 	*ps = NULL;
 
+	launcher->dock = dock;
+	wl_list_insert(dock->launcher_list.prev, &launcher->link);
+
+	launcher->widget = widget_add_widget(dock->widget, launcher);
+	widget_set_enter_handler(launcher->widget,
+				 dock_launcher_enter_handler);
+	widget_set_leave_handler(launcher->widget,
+				   dock_launcher_leave_handler);
+	widget_set_button_handler(launcher->widget,
+				    dock_launcher_button_handler);
+	widget_set_redraw_handler(launcher->widget,
+				  dock_launcher_redraw_handler);
+	widget_set_motion_handler(launcher->widget,
+				  dock_launcher_motion_handler);
+}
+
+static void
+dock_add_main_launcher(struct dock *dock, const char *icon)
+{
+	struct dock_launcher *launcher;
+
+	launcher = malloc(sizeof *launcher);
+	memset(launcher, 0, sizeof *launcher);
+
+	if (!launcher)
+		return;
+
+	launcher->icon = load_icon_or_fallback(icon, 1);
+	launcher->main_menu_button = 1;
+	launcher->path = strdup("main_menu");
 	launcher->dock = dock;
 	wl_list_insert(dock->launcher_list.prev, &launcher->link);
 
@@ -1286,9 +1423,15 @@ static void
 desktop_update_list_items(struct desktop *desktop, struct surface *surface)
 {
 	struct output *output;
+	struct dock_launcher *launcher;
+	struct dock *dock;
 
-	wl_list_for_each(output, &desktop->outputs, link)
+	wl_list_for_each(output, &desktop->outputs, link) {
 		output_update_window_list(output, surface);
+		dock = output->dock;
+		wl_list_for_each(launcher, &dock->launcher_list, link)
+			dock_launcher_detect_processes(launcher);
+	}
 }
 
 static void
@@ -1381,6 +1524,7 @@ static void
 surface_data_destroy_handler(void *data, struct surface_data *surface_data)
 {
 	struct list_item *item, *next;
+	struct dock_launcher *launcher;
 	struct desktop *desktop;
 	struct surface *surface = data;
 	struct output *output;
@@ -1389,9 +1533,13 @@ surface_data_destroy_handler(void *data, struct surface_data *surface_data)
 	desktop = surface->desktop;
 
 	surface_data_destroy(surface_data);
+	surface->cmdline = NULL;
 
 	wl_list_for_each(output, &desktop->outputs, link) {
 		dock = output->dock;
+		wl_list_for_each(launcher, &dock->launcher_list, link) {
+			dock_launcher_detect_processes(launcher);
+		}
 		wl_list_for_each_safe(item, next, &dock->window_list, link) {
 			if (surface_data == item->surface->surface_data) {
 				desktop_destroy_surface(item->surface);
@@ -1565,7 +1713,7 @@ int main(int argc, char *argv[])
 	struct desktop desktop = { 0 };
 	char *config_file;
 	struct output *output;
-	int ret, vertical = 0;
+	int i, ret, vertical = 0;
 
 	wl_list_init(&desktop.outputs);
 
@@ -1575,8 +1723,12 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	if ((argc > 1) && (!strcmp(argv[1], "--vertical") || !strcmp(argv[1], "-v"))) { printf("setting vertical\n");
-		vertical = 1;}
+	for ( i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "--vertical") || !strcmp(argv[i], "-v"))
+			vertical = 1;
+		else if (!strcmp(argv[i], "--debug") || !strcmp(argv[i], "-d"))
+			option_debug = 1;
+	}
 
 	wl_list_init(&desktop.surfaces);
 	desktop.output_count = 0;
@@ -1588,11 +1740,10 @@ int main(int argc, char *argv[])
 		struct wl_surface *surface;
 
 		output->dock = dock_create_instance(desktop.display, vertical);
+		output->dock->output = output;
 		surface = window_get_wl_surface(output->dock->window);
 		dock_set_dock(desktop.dock, output->output, surface, vertical);
-		/* Main menu */
-		dock_add_launcher(output->dock,
-				   DATADIR "/weston/wayland.png", NULL);
+		dock_add_main_launcher(output->dock, DATADIR "/weston/wayland.png");
 	}
 
 	config_file = config_file_path("weston.ini");

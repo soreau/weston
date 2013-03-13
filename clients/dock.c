@@ -141,6 +141,7 @@ struct dock_launcher {
 	int focused, pressed;
 	int main_menu_button;
 	int client_running;
+	int sd_minimized, sd_maximized, sd_focused;
 	char *path;
 	struct wl_list link;
 	struct wl_array envp;
@@ -283,23 +284,47 @@ dock_launcher_redraw_handler(struct widget *widget, void *data)
 		cairo_rectangle(cr, allocation.x, allocation.y, 10, 10);
 		cairo_fill(cr);
 
-		cairo_set_source_rgba (cr, 0.5, 0.5, 0.5, 1.0);
-		cairo_set_line_width(cr, 1);
-		cairo_rectangle(cr, allocation.x, allocation.y, 10, 10);
-		cairo_stroke(cr);
+		if (launcher->client_running)
+		{
+			if (launcher->dock->vertical)
+				y += 15;
+			else
+				x += 15;
 
-		if (launcher->dock->vertical)
-			y += 15;
-		else
-			x += 15;
-/*
-		if (what_surface_minimized?)
-			cairo_set_source_rgba (cr, 0.0, 1.0, 0.0, 1.0);
-		else
-			cairo_set_source_rgba (cr, 1.0, 0.0, 0.0, 1.0);
-		cairo_rectangle(cr, allocation.x, allocation.y, 10, 10);
-		cairo_fill(cr);
-*/
+			if (launcher->sd_minimized)
+				cairo_set_source_rgba (cr, 0.0, 1.0, 0.0, 1.0);
+			else
+				cairo_set_source_rgba (cr, 1.0, 0.0, 0.0, 1.0);
+			cairo_rectangle(cr, allocation.x + x, allocation.y + y, 10, 10);
+			cairo_fill(cr);
+
+			if (launcher->dock->vertical)
+				y += 15;
+			else
+				x += 15;
+
+			if (launcher->sd_maximized)
+				cairo_set_source_rgba (cr, 0.0, 1.0, 0.0, 1.0);
+			else
+				cairo_set_source_rgba (cr, 1.0, 0.0, 0.0, 1.0);
+			cairo_rectangle(cr, allocation.x + x, allocation.y + y, 10, 10);
+			cairo_fill(cr);
+
+			if (launcher->dock->vertical)
+				y += 15;
+			else
+				x += 15;
+
+			if (launcher->sd_focused)
+				cairo_set_source_rgba (cr, 0.0, 1.0, 0.0, 1.0);
+			else
+				cairo_set_source_rgba (cr, 1.0, 0.0, 0.0, 1.0);
+			cairo_rectangle(cr, allocation.x + x, allocation.y + y, 10, 10);
+			cairo_fill(cr);
+		}
+
+		x = y = 0;
+
 		cairo_set_source_rgba (cr, 0.5, 0.5, 0.5, 1.0);
 		cairo_set_line_width(cr, 1);
 		cairo_rectangle(cr, allocation.x + x, allocation.y + y, 10, 10);
@@ -309,14 +334,7 @@ dock_launcher_redraw_handler(struct widget *widget, void *data)
 			y += 15;
 		else
 			x += 15;
-/*
-		if (what_surface_maximized?)
-			cairo_set_source_rgba (cr, 0.0, 1.0, 0.0, 1.0);
-		else
-			cairo_set_source_rgba (cr, 1.0, 0.0, 0.0, 1.0);
-		cairo_rectangle(cr, allocation.x, allocation.y, 10, 10);
-		cairo_fill(cr);
-*/
+
 		cairo_set_source_rgba (cr, 0.5, 0.5, 0.5, 1.0);
 		cairo_set_line_width(cr, 1);
 		cairo_rectangle(cr, allocation.x + x, allocation.y + y, 10, 10);
@@ -326,14 +344,17 @@ dock_launcher_redraw_handler(struct widget *widget, void *data)
 			y += 15;
 		else
 			x += 15;
-/*
-		if (what_surface_focused?)
-			cairo_set_source_rgba (cr, 0.0, 1.0, 0.0, 1.0);
+
+		cairo_set_source_rgba (cr, 0.5, 0.5, 0.5, 1.0);
+		cairo_set_line_width(cr, 1);
+		cairo_rectangle(cr, allocation.x + x, allocation.y + y, 10, 10);
+		cairo_stroke(cr);
+
+		if (launcher->dock->vertical)
+			y += 15;
 		else
-			cairo_set_source_rgba (cr, 1.0, 0.0, 0.0, 1.0);
-		cairo_rectangle(cr, allocation.x, allocation.y, 10, 10);
-		cairo_fill(cr);
-*/
+			x += 15;
+
 		cairo_set_source_rgba (cr, 0.5, 0.5, 0.5, 1.0);
 		cairo_set_line_width(cr, 1);
 		cairo_rectangle(cr, allocation.x + x, allocation.y + y, 10, 10);
@@ -413,6 +434,15 @@ dock_launcher_leave_handler(struct widget *widget,
 	widget_schedule_redraw(widget);
 }
 
+static void
+dock_launcher_set_states(struct dock_launcher *launcher,
+			struct surface *surface)
+{
+	launcher->sd_minimized = surface->minimized;
+	launcher->sd_maximized = surface->maximized;
+	launcher->sd_focused = surface->focused;
+}
+
 static int
 dock_launcher_detect_processes(struct dock_launcher *launcher)
 {
@@ -420,13 +450,19 @@ dock_launcher_detect_processes(struct dock_launcher *launcher)
 	struct wl_list *window_list = &dock->window_list;
 	struct list_item *item;
 	int match_found = 0;
+	int first_run = 1;
 	char *str1, *str2;
 
 	str1 = basename(launcher->path);
 	wl_list_for_each(item, window_list, link) {
 		str2 = basename(item->surface->cmdline);
-		if (!strcmp(str1, str2))
+		if (!strcmp(str1, str2)) {
 			match_found = 1;
+			if (first_run) {
+				dock_launcher_set_states(launcher, item->surface);
+				first_run = 0;
+			}
+		}
 	}
 
 	if (!launcher->main_menu_button)
@@ -503,7 +539,7 @@ dock_launcher_button_handler(struct widget *widget,
 	wl_list_for_each(item, window_list, link) {
 		str2 = basename(item->surface->cmdline);
 		if (!strcmp(str1, str2)) {
-			if (dock->last_launcher == launcher) {
+			if (dock->last_launcher == launcher || item->surface->focused) {
 				if (minimize_state)
 					surface_data_unminimize(item->surface->surface_data);
 				else

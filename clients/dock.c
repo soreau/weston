@@ -271,7 +271,7 @@ dock_launcher_redraw_handler(struct widget *widget, void *data)
 
 	if (!launcher->focused) {
 		cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
-		cairo_set_source_rgba (cr, 0.4, 0.3, 0.2, 0.9);
+		cairo_set_source_rgba (cr, 0.1, 0.1, 0.1, 0.7);
 		cairo_mask_surface (cr, launcher->icon, allocation.x, allocation.y);
 	}
 
@@ -863,35 +863,23 @@ load_icon_or_fallback(const char *icon, int launcher)
 	if (sw != 64 || sh != 64)
 		isurface = cairo_resize_surface(isurface, 0, 64, 64);
 
-	/* draw fallback icon */
+	/* draw launcher backdrop */
 	surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, w * 2 + 6, w * 2 + 2);
 	cr = cairo_create(surface);
 
-	cairo_move_to (cr, w/2, 0);
-	cairo_rel_line_to (cr, w, 0);
-	cairo_rotate (cr, 60 * (M_PI/180.0));
-	cairo_rel_line_to (cr, w, 0);
-	cairo_rotate (cr, 60 * (M_PI/180.0));
-	cairo_rel_line_to (cr, w, 0);
-	cairo_rotate (cr, 60 * (M_PI/180.0));
-	cairo_rel_line_to (cr, w, 0);
-	cairo_rotate (cr, 60 * (M_PI/180.0));
-	cairo_rel_line_to (cr, w, 0);
-	cairo_rotate (cr, 60 * (M_PI/180.0));
-	cairo_rel_line_to (cr, w, 0);
-	cairo_rotate (cr, 60 * (M_PI/180.0));
-	cairo_close_path (cr);
-	cairo_set_source_rgba(cr, 0.4, 0.2, 0.4, 0.7);
-	cairo_set_line_width(cr, 1.5);
-	cairo_set_line_cap (cr, CAIRO_LINE_CAP_BUTT);
-	cairo_stroke_preserve (cr);
-	cairo_set_source_rgba(cr, 0.5, 0.5, 0.6, 0.5);
-	cairo_fill (cr);
-
+	cairo_move_to (cr, w/2, 20);
+	cairo_set_source_rgba(cr, 0.5, 0.5, 0.5, 0.5);	
+	cairo_arc(cr, 42, 42, 35, 0, 2 * M_PI);
+	cairo_fill(cr);
+	cairo_set_source_rgba(cr, 0.3, 0.3, 0.3, 1.0);	
+	cairo_arc(cr, 42, 42, 33, 0, 2 * M_PI);
+	cairo_stroke(cr);
+	cairo_set_source_rgba(cr, 0.5, 0.5, 0.5, 1.0);	
+	cairo_arc(cr, 42, 42, 35, 0, 2 * M_PI);
+	cairo_stroke(cr);
 
 	if (cairo_surface_status(isurface) == CAIRO_STATUS_SUCCESS) {
-		cairo_set_source_surface (cr, isurface, 8, 2);
-		//cairo_translate(cr, -28, -34);
+		cairo_set_source_surface (cr, isurface, 10, 10);
 		cairo_rectangle (cr, 0, 0, 128, 128);
 		cairo_fill (cr);
 	} else {

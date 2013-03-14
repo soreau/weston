@@ -143,6 +143,12 @@ struct dock_launcher {
 	int client_running;
 	int sd_minimized, sd_maximized, sd_focused;
 	char *path;
+	float tint;
+	struct task tint_task;
+	int tint_fd;
+	int tint_fading;
+	struct task tint_anim_task;
+	int tint_anim_fd;
 	struct wl_list link;
 	struct wl_array envp;
 	struct wl_array argv;
@@ -246,6 +252,90 @@ dock_launcher_activate(struct dock_launcher *widget)
 	}
 }
 
+static int
+launcher_timer_set(int timer_fd, uint32_t tv_sec, uint32_t tv_nsec)
+{
+	struct itimerspec its;
+
+	its.it_interval.tv_sec = tv_sec;
+	its.it_interval.tv_nsec = tv_nsec;
+	its.it_value.tv_sec = tv_sec;
+	its.it_value.tv_nsec = tv_nsec;
+	if (timerfd_settime(timer_fd, 0, &its, NULL) < 0) {
+		fprintf(stderr, "could not set timerfd: %m\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+static void
+launcher_timer_reset(int timer_fd)
+{
+	launcher_timer_set(timer_fd, 0, 0);
+}
+
+static void
+tint_anim_func(struct task *task, uint32_t events)
+{
+	struct dock_launcher *launcher =
+		container_of(task, struct dock_launcher, tint_anim_task);
+	uint64_t exp;
+
+	if (read(launcher->tint_anim_fd, &exp, sizeof exp) != sizeof exp)
+		abort();
+
+	if (launcher->tint_fading) {
+		launcher->tint += launcher->tint_fading * 
+				((launcher->tint_fading < 0) ? 0.005f : 0.001f);
+		if (launcher->tint > 0.5f) {
+			launcher->tint = 0.5f;
+			launcher->tint_fading = 0;
+			launcher_timer_reset(launcher->tint_anim_fd);
+		}
+		if (launcher->tint < 0.0f) {
+			launcher->tint = 0.0f;
+			launcher->tint_fading = 0;
+			launcher_timer_reset(launcher->tint_anim_fd);
+		}
+	}
+
+	widget_schedule_redraw(launcher->widget);
+}
+
+static void
+launcher_fade(struct dock_launcher *launcher)
+{
+	launcher->tint_anim_fd = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC);
+	if (launcher->tint_anim_fd < 0) {
+		fprintf(stderr, "could not create tint_anim_fd\n: %m");
+		return;
+	}
+
+	launcher->tint_anim_task.run = tint_anim_func;
+	display_watch_fd(window_get_display(launcher->dock->window), launcher->tint_anim_fd,
+			 EPOLLIN, &launcher->tint_anim_task);
+	launcher_timer_set(launcher->tint_anim_fd, 0, 1000 * 1000);
+}
+
+static void
+tint_func(struct task *task, uint32_t events)
+{
+	struct dock_launcher *launcher =
+		container_of(task, struct dock_launcher, tint_task);
+	uint64_t exp;
+
+	if (read(launcher->tint_fd, &exp, sizeof exp) != sizeof exp)
+		abort();
+
+	widget_schedule_redraw(launcher->widget);
+	launcher_timer_reset(launcher->tint_fd);
+	if (!launcher->tint_fading) {
+		launcher->tint_fading = 1;
+		launcher_fade(launcher);
+	}
+}
+
 static void
 dock_launcher_redraw_handler(struct widget *widget, void *data)
 {
@@ -269,9 +359,9 @@ dock_launcher_redraw_handler(struct widget *widget, void *data)
 
 	cairo_paint(cr);
 
-	if (!launcher->focused) {
+	if (launcher->tint != 0.0f) {
 		cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
-		cairo_set_source_rgba (cr, 0.1, 0.1, 0.1, 0.7);
+		cairo_set_source_rgba (cr, 0, 0, 0, launcher->tint);
 		cairo_mask_surface (cr, launcher->icon, allocation.x, allocation.y);
 	}
 
@@ -367,10 +457,7 @@ dock_launcher_redraw_handler(struct widget *widget, void *data)
 static int
 dock_launcher_motion_handler(struct widget *widget, struct input *input,
 			      uint32_t time, float x, float y, void *data)
-{/*
-	struct dock_launcher *launcher = data;
-
-	widget_set_tooltip(widget, basename((char *)launcher->path), x, y);*/
+{
 
 	return CURSOR_LEFT_PTR;
 }
@@ -420,6 +507,12 @@ dock_launcher_enter_handler(struct widget *widget, struct input *input,
 	launcher->focused = 1;
 	widget_schedule_redraw(widget);
 
+	if (!launcher->main_menu_button) {
+		if (!launcher->tint_fading)
+			launcher_fade(launcher);
+		launcher->tint_fading = -1;
+	}
+
 	return CURSOR_LEFT_PTR;
 }
 
@@ -430,8 +523,16 @@ dock_launcher_leave_handler(struct widget *widget,
 	struct dock_launcher *launcher = data;
 
 	launcher->focused = 0;
-	//widget_destroy_tooltip(widget);
 	widget_schedule_redraw(widget);
+
+	if (!launcher->main_menu_button) {
+		if (launcher->tint_fading < 0)
+			launcher->tint_fading = 1;
+		else if (!launcher->tint_fading) {
+			launcher_fade(launcher);
+			launcher->tint_fading = 1;
+		}
+	}
 }
 
 static void
@@ -903,7 +1004,6 @@ dock_add_launcher(struct dock *dock, const char *icon, const char *path)
 	launcher->icon = load_icon_or_fallback(icon, 1);
 
 	launcher->path = strdup(path);
-	launcher->main_menu_button = 0;
 
 	wl_array_init(&launcher->envp);
 	wl_array_init(&launcher->argv);
@@ -950,6 +1050,17 @@ dock_add_launcher(struct dock *dock, const char *icon, const char *path)
 
 	launcher->dock = dock;
 	wl_list_insert(dock->launcher_list.prev, &launcher->link);
+
+	launcher->tint_fd = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC);
+	if (launcher->tint_fd < 0) {
+		fprintf(stderr, "could not create tint_fd\n: %m");
+		return;
+	}
+
+	launcher->tint_task.run = tint_func;
+	display_watch_fd(window_get_display(dock->window), launcher->tint_fd,
+			 EPOLLIN, &launcher->tint_task);
+	launcher_timer_set(launcher->tint_fd, 1, 0);
 
 	launcher->widget = widget_add_widget(dock->widget, launcher);
 	widget_set_enter_handler(launcher->widget,

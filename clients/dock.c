@@ -1878,7 +1878,7 @@ int main(int argc, char *argv[])
 		output->dock->output = output;
 		surface = window_get_wl_surface(output->dock->window);
 		dock_set_dock(desktop.dock, output->output, surface, vertical);
-		dock_add_main_launcher(output->dock, DATADIR "/weston/wayland.png");
+		dock_add_main_launcher(output->dock, DATADIR "/weston/launcher-icon.png");
 	}
 
 	config_file = config_file_path("weston.ini");

@@ -1846,12 +1846,12 @@ shell_unset_maximized(struct shell_surface *shsurf)
 	weston_surface_set_position(shsurf->surface,
 				    shsurf->saved_x,
 				    shsurf->saved_y);
-
 	if (shsurf->saved_rotation_valid) {
 		wl_list_insert(&shsurf->surface->geometry.transformation_list,
 						   &shsurf->rotation.transform.link);
 		shsurf->saved_rotation_valid = false;
 	}
+	surface_data_send_maximized(shsurf->surface_data, 0);
 
 	ws = get_current_workspace(shsurf->shell);
 	wl_list_remove(&shsurf->surface->layer_link);

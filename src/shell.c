@@ -1242,7 +1242,8 @@ surface_resize(struct shell_surface *shsurf,
 {
 	struct weston_resize_grab *resize;
 
-	if (shsurf->type == SHELL_SURFACE_FULLSCREEN)
+	if (shsurf->type == SHELL_SURFACE_FULLSCREEN ||
+		shsurf->type == SHELL_SURFACE_MAXIMIZED)
 		return 0;
 
 	if (edges == 0 || edges > 15 ||
@@ -1839,6 +1840,27 @@ shell_unset_fullscreen(struct shell_surface *shsurf)
 	wl_list_insert(&ws->layer.surface_list, &shsurf->surface->layer_link);
 }
 
+static void
+shell_unset_maximized(struct shell_surface *shsurf)
+{
+	struct workspace *ws;
+	/* undo all maximized things here */
+	shsurf->output = get_default_output(shsurf->surface->compositor);
+	weston_surface_set_position(shsurf->surface,
+					shsurf->saved_x,
+					shsurf->saved_y);
+	if (shsurf->saved_rotation_valid) {
+		wl_list_insert(&shsurf->surface->geometry.transformation_list,
+						   &shsurf->rotation.transform.link);
+		shsurf->saved_rotation_valid = false;
+	}
+	surface_data_send_maximized(shsurf->surface_data, 0);
+
+	ws = get_current_workspace(shsurf->shell);
+	wl_list_remove(&shsurf->surface->layer_link);
+	wl_list_insert(&ws->layer.surface_list, &shsurf->surface->layer_link);
+}
+
 static int
 reset_shell_surface_type(struct shell_surface *surface)
 {
@@ -1847,11 +1869,7 @@ reset_shell_surface_type(struct shell_surface *surface)
 		shell_unset_fullscreen(surface);
 		break;
 	case SHELL_SURFACE_MAXIMIZED:
-		surface->output = get_default_output(surface->surface->compositor);
-		weston_surface_set_position(surface->surface,
-					    surface->saved_x,
-					    surface->saved_y);
-		surface_data_send_maximized(surface->surface_data, 0);
+		shell_unset_maximized(surface);
 		break;
 	case SHELL_SURFACE_NONE:
 	case SHELL_SURFACE_TOPLEVEL:
@@ -1888,6 +1906,12 @@ set_surface_type(struct shell_surface *shsurf)
 		shsurf->saved_x = surface->geometry.x;
 		shsurf->saved_y = surface->geometry.y;
 		shsurf->saved_position_valid = true;
+		if (!wl_list_empty(&shsurf->rotation.transform.link)) {
+			wl_list_remove(&shsurf->rotation.transform.link);
+			wl_list_init(&shsurf->rotation.transform.link);
+			shsurf->surface->geometry.dirty = 1;
+			shsurf->saved_rotation_valid = true;
+		}
 		surface_data_send_maximized(shsurf->surface_data, 1);
 		break;
 
@@ -2894,7 +2918,8 @@ move_binding(struct wl_seat *seat, uint32_t time, uint32_t button, void *data)
 		return;
 
 	shsurf = get_shell_surface(surface);
-	if (shsurf == NULL || shsurf->type == SHELL_SURFACE_FULLSCREEN)
+	if (shsurf == NULL || shsurf->type == SHELL_SURFACE_FULLSCREEN ||
+		shsurf->type == SHELL_SURFACE_MAXIMIZED)
 		return;
 
 	surface_move(shsurf, (struct weston_seat *) seat);
@@ -2913,7 +2938,8 @@ resize_binding(struct wl_seat *seat, uint32_t time, uint32_t button, void *data)
 		return;
 
 	shsurf = get_shell_surface(surface);
-	if (!shsurf || shsurf->type == SHELL_SURFACE_FULLSCREEN)
+	if (!shsurf || shsurf->type == SHELL_SURFACE_FULLSCREEN ||
+		shsurf->type == SHELL_SURFACE_MAXIMIZED)
 		return;
 
 	weston_surface_from_global(surface,
@@ -3172,7 +3198,8 @@ rotate_binding(struct wl_seat *seat, uint32_t time, uint32_t button,
 		return;
 
 	surface = get_shell_surface(base_surface);
-	if (!surface || surface->type == SHELL_SURFACE_FULLSCREEN)
+	if (!surface || surface->type == SHELL_SURFACE_FULLSCREEN ||
+		surface->type == SHELL_SURFACE_MAXIMIZED)
 		return;
 
 	surface_rotate(surface, seat);

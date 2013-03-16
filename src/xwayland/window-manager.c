@@ -1753,8 +1753,41 @@ send_configure(struct weston_surface *surface,
 				       weston_wm_window_configure, window);
 }
 
+static void
+send_maximize(struct shell_surface *shsurf)
+{
+	weston_log("TODO: xwayland client maximize\n");
+}
+
+static void
+send_unmaximize(struct shell_surface *shsurf)
+{
+	weston_log("TODO: xwayland client unmaximize\n");
+}
+
+static void
+send_minimize(struct shell_surface *shsurf)
+{
+}
+
+static void
+send_unminimize(struct shell_surface *shsurf)
+{
+}
+
+static void
+send_destroy(struct shell_surface *shsurf)
+{
+	weston_log("TODO: xwayland client close\n");
+}
+
 static const struct weston_shell_client shell_client = {
-	send_configure
+	send_configure,
+	send_maximize,
+	send_unmaximize,
+	send_minimize,
+	send_unminimize,
+	send_destroy
 };
 
 static void

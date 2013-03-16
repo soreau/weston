@@ -72,6 +72,11 @@ struct weston_mode {
 struct weston_shell_client {
 	void (*send_configure)(struct weston_surface *surface,
 			       uint32_t edges, int32_t width, int32_t height);
+	void (*send_maximize)(struct shell_surface *shsurf);
+	void (*send_unmaximize)(struct shell_surface *shsurf);
+	void (*send_minimize)(struct shell_surface *shsurf);
+	void (*send_unminimize)(struct shell_surface *shsurf);
+	void (*send_destroy)(struct shell_surface *shsurf);
 };
 
 struct weston_shell_interface {

@@ -3495,7 +3495,6 @@ window_set_fullscreen(struct window *window, int fullscreen)
 						   window->saved_allocation.width,
 						   window->saved_allocation.height);
 		}
-
 	}
 }
 

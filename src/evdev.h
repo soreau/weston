@@ -77,6 +77,9 @@ struct evdev_device {
 	enum evdev_device_capability caps;
 
 	int is_mt;
+
+	uint32_t button_down_cache;
+	uint32_t button_sync_drop;
 };
 
 /* copied from udev/extras/input_id/input_id.c */

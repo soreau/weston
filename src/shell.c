@@ -1917,7 +1917,8 @@ reset_shell_surface_type(struct shell_surface *surface)
 		shell_unset_fullscreen(surface);
 		break;
 	case SHELL_SURFACE_MAXIMIZED:
-		shell_unset_maximized(surface);
+		if (surface->next_type != SHELL_SURFACE_FULLSCREEN)
+			shell_unset_maximized(surface);
 		break;
 	case SHELL_SURFACE_NONE:
 	case SHELL_SURFACE_TOPLEVEL:

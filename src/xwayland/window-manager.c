@@ -377,7 +377,7 @@ weston_wm_window_read_properties(struct weston_wm_window *window)
 			for (i = 0; i < reply->value_len; i++) {
 				if (atom[i] == wm->atom.net_wm_state_fullscreen)
 					window->fullscreen = 1;
-				if (atom[i] == wm->atom.net_wm_state_maximized_vert ||
+				else if (atom[i] == wm->atom.net_wm_state_maximized_vert ||
 					atom[i] == wm->atom.net_wm_state_maximized_horz)
 					window->maximized = 1;
 			}
@@ -643,7 +643,7 @@ weston_wm_window_set_net_wm_state(struct weston_wm_window *window)
 	i = 0;
 	if (window->fullscreen)
 		property[i++] = wm->atom.net_wm_state_fullscreen;
-	if (window->maximized) {
+	else if (window->maximized) {
 		property[i++] = wm->atom.net_wm_state_maximized_vert;
 		property[i++] = wm->atom.net_wm_state_maximized_horz;
 	}
@@ -1111,27 +1111,34 @@ weston_wm_window_handle_state(struct weston_wm_window *window,
 	    update_state(action, &window->fullscreen)) {
 		weston_wm_window_set_net_wm_state(window);
 		if (window->fullscreen) {
-			window->saved_width = window->width;
-			window->saved_height = window->height;
+			if (!window->maximized) {
+				window->saved_width = window->width;
+				window->saved_height = window->height;
+			}
 
 			if (window->shsurf)
 				shell_interface->set_fullscreen(window->shsurf,
 								WL_SHELL_SURFACE_FULLSCREEN_METHOD_DEFAULT,
 								0, NULL);
 		} else {
-			shell_interface->set_toplevel(window->shsurf);
-			window->width = window->saved_width;
-			window->height = window->saved_height;
-			weston_wm_window_configure(window);
+			if (window->maximized)
+				shell_interface->set_maximized(window->shsurf, NULL);
+			else {
+				shell_interface->set_toplevel(window->shsurf);
+				window->width = window->saved_width;
+				window->height = window->saved_height;
+				weston_wm_window_configure(window);
+			}
 		}
-	}
-	if ((property == wm->atom.net_wm_state_maximized_vert ||
+	} else if ((property == wm->atom.net_wm_state_maximized_vert ||
 	     property == wm->atom.net_wm_state_maximized_horz) &&
 	     update_state(action, &window->maximized)) {
 		weston_wm_window_set_net_wm_state(window);
 		if (window->maximized) {
-			window->saved_width = window->width;
-			window->saved_height = window->height;
+			if (!window->fullscreen) {
+				window->saved_width = window->width;
+				window->saved_height = window->height;
+			}
 
 			if (window->shsurf)
 				shell_interface->set_maximized(window->shsurf, NULL);
@@ -1821,8 +1828,10 @@ send_maximize(struct weston_surface *surface)
 	if (window->maximized)
 		return;
 
-	window->saved_width = window->width;
-	window->saved_height = window->height;
+	if (!window->fullscreen) {
+		window->saved_width = window->width;
+		window->saved_height = window->height;
+	}
 	update_state(_NET_WM_STATE_TOGGLE, &window->maximized);
 	shell_interface->set_maximized(window->shsurf, NULL);
 }
@@ -1894,15 +1903,19 @@ xserver_map_shell_surface(struct weston_wm *wm,
 		shell_interface->set_title(window->shsurf, window->name);
 
 	if (window->fullscreen) {
-		window->saved_width = window->width;
-		window->saved_height = window->height;
+		if (!window->maximized) {
+			window->saved_width = window->width;
+			window->saved_height = window->height;
+		}
 		shell_interface->set_fullscreen(window->shsurf,
 						WL_SHELL_SURFACE_FULLSCREEN_METHOD_DEFAULT,
 						0, NULL);
 		return;
 	} else if (window->maximized) {
-		window->saved_width = window->width;
-		window->saved_height = window->height;
+		if (!window->fullscreen) {
+			window->saved_width = window->width;
+			window->saved_height = window->height;
+		}
 		shell_interface->set_maximized(window->shsurf, NULL);
 		return;
 	} else if (!window->override_redirect) {

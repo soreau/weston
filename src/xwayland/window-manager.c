@@ -1199,9 +1199,11 @@ weston_wm_destroy_cursors(struct weston_wm *wm)
 }
 
 static int
-get_cursor_for_location(struct theme *t, int width, int height, int x, int y)
+get_cursor_for_location(struct theme *t,
+			int width, int height, int x, int y, int maximized)
 {
-	int location = theme_get_location(t, x, y, width, height, 0);
+	int location = theme_get_location(t, x, y, width, height,
+					maximized ? THEME_FRAME_MAXIMIZED : 0);
 
 	switch (location) {
 		case THEME_LOCATION_RESIZING_TOP:
@@ -1304,7 +1306,8 @@ weston_wm_handle_motion(struct weston_wm *wm, xcb_generic_event_t *event)
 
 	weston_wm_window_get_frame_size(window, &width, &height);
 	cursor = get_cursor_for_location(wm->theme, width, height,
-					 motion->event_x, motion->event_y);
+					 motion->event_x, motion->event_y,
+					 window->maximized);
 
 	weston_wm_window_set_cursor(wm, window->frame_id, cursor);
 }
@@ -1322,7 +1325,8 @@ weston_wm_handle_enter(struct weston_wm *wm, xcb_generic_event_t *event)
 
 	weston_wm_window_get_frame_size(window, &width, &height);
 	cursor = get_cursor_for_location(wm->theme, width, height,
-					 enter->event_x, enter->event_y);
+					 enter->event_x, enter->event_y,
+					 window->maximized);
 
 	weston_wm_window_set_cursor(wm, window->frame_id, cursor);
 }

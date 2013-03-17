@@ -851,12 +851,16 @@ weston_wm_window_draw_decoration(void *data)
 		window->surface->geometry.dirty = 1;
 	}
 
-	if (window->surface && (!window->fullscreen || !window->maximized)) {
+	if (window->surface && !window->fullscreen && !window->maximized) {
 		pixman_region32_fini(&window->surface->pending.input);
 		pixman_region32_init_rect(&window->surface->pending.input,
 					  t->margin, t->margin,
 					  width - 2 * t->margin,
 					  height - 2 * t->margin);
+	} else if (window->maximized) {
+		pixman_region32_fini(&window->surface->pending.input);
+		pixman_region32_init_rect(&window->surface->pending.input,
+					  0, 0, width, height);
 	}
 }
 

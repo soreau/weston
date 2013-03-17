@@ -56,7 +56,7 @@ struct theme {
 };
 
 struct theme *
-theme_create(void);
+theme_create(int rgb);
 void
 theme_destroy(struct theme *t);
 

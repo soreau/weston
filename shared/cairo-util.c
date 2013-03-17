@@ -317,11 +317,12 @@ load_cairo_surface(const char *filename)
 }
 
 struct theme *
-theme_create(void)
+theme_create(int rgb)
 {
 	struct theme *t;
 	cairo_t *cr;
 	cairo_pattern_t *pattern;
+	float r, g, b;
 
 	t = malloc(sizeof *t);
 	t->margin = 32;
@@ -337,14 +338,31 @@ theme_create(void)
 	cairo_destroy(cr);
 	blur_surface(t->shadow, 64);
 
+	/* Titlebar - Top border */
+	r = 0.48;
+	g = 0.63;
+	b = 0.82;
+
 	t->active_frame =
 		cairo_image_surface_create (CAIRO_FORMAT_ARGB32, 128, 128);
 	cr = cairo_create(t->active_frame);
 	cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
 
 	pattern = cairo_pattern_create_linear(16, 16, 16, 112);
-	cairo_pattern_add_color_stop_rgb(pattern, 0.0, 1.0, 1.0, 1.0);
-	cairo_pattern_add_color_stop_rgb(pattern, 0.2, 0.8, 0.8, 0.8);
+	if (rgb)
+		cairo_pattern_add_color_stop_rgb(pattern, 0.0, r, g, b);
+	else
+		cairo_pattern_add_color_stop_rgb(pattern, 0.0, b, g, r);
+
+	/* The rest - Right, left and bottom borders */
+	r = 0.40;
+	g = 0.53;
+	b = 0.72;
+
+	if (rgb)
+		cairo_pattern_add_color_stop_rgb(pattern, 0.2, r, g, b);
+	else
+		cairo_pattern_add_color_stop_rgb(pattern, 0.2, b, g, r);
 	cairo_set_source(cr, pattern);
 	cairo_pattern_destroy(pattern);
 
@@ -352,11 +370,19 @@ theme_create(void)
 	cairo_fill(cr);
 	cairo_destroy(cr);
 
+	/* Entire frame - Windows without focus */
+	r = 0.40;
+	g = 0.53;
+	b = 0.72;
+
 	t->inactive_frame =
 		cairo_image_surface_create (CAIRO_FORMAT_ARGB32, 128, 128);
 	cr = cairo_create(t->inactive_frame);
 	cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
-	cairo_set_source_rgba(cr, 0.75, 0.75, 0.75, 1);
+	if (rgb)
+		cairo_set_source_rgba(cr, r, g, b, 1);
+	else
+		cairo_set_source_rgba(cr, b, g, r, 1);
 	rounded_rect(cr, 0, 0, 128, 128, t->frame_radius);
 	cairo_fill(cr);
 	cairo_destroy(cr);
@@ -416,7 +442,7 @@ theme_render_frame(struct theme *t,
 	cairo_select_font_face(cr, "sans",
 			       CAIRO_FONT_SLANT_NORMAL,
 			       CAIRO_FONT_WEIGHT_BOLD);
-	cairo_set_font_size(cr, 14);
+	cairo_set_font_size(cr, 12);
 	cairo_text_extents(cr, title, &extents);
 	cairo_font_extents (cr, &font_extents);
 	x = (width - extents.width) / 2;
@@ -425,18 +451,12 @@ theme_render_frame(struct theme *t,
 		 font_extents.ascent - font_extents.descent) / 2 +
 		font_extents.ascent;
 
-	if (flags & THEME_FRAME_ACTIVE) {
-		cairo_move_to(cr, x + 1, y  + 1);
-		cairo_set_source_rgb(cr, 1, 1, 1);
-		cairo_show_text(cr, title);
-		cairo_move_to(cr, x, y);
-		cairo_set_source_rgb(cr, 0, 0, 0);
-		cairo_show_text(cr, title);
-	} else {
-		cairo_move_to(cr, x, y);
-		cairo_set_source_rgb(cr, 0.4, 0.4, 0.4);
-		cairo_show_text(cr, title);
-	}
+	cairo_move_to(cr, x, y);
+	if (flags & THEME_FRAME_ACTIVE)
+		cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
+	else
+		cairo_set_source_rgb(cr, 0.3, 0.3, 0.3);
+	cairo_show_text(cr, title);
 }
 
 enum theme_location

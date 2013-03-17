@@ -1153,32 +1153,57 @@ send_configure(struct weston_surface *surface,
 }
 
 static void
-send_maximize(struct shell_surface *shsurf)
+send_maximize(struct weston_surface *surface)
 {
+	struct shell_surface *shsurf = get_shell_surface(surface);
+
+	if (!shsurf)
+		return;
+
 	wl_shell_surface_send_maximize(&shsurf->resource);
 }
 
 static void
-send_unmaximize(struct shell_surface *shsurf)
+send_unmaximize(struct weston_surface *surface)
 {
+	struct shell_surface *shsurf = get_shell_surface(surface);
+
+	if (!shsurf)
+		return;
+
 	wl_shell_surface_send_unmaximize(&shsurf->resource);
 }
 
 static void
-send_minimize(struct shell_surface *shsurf)
+send_minimize(struct weston_surface *surface)
 {
+	struct shell_surface *shsurf = get_shell_surface(surface);
+
+	if (!shsurf)
+		return;
+
 	wl_shell_surface_send_minimize(&shsurf->resource);
 }
 
 static void
-send_unminimize(struct shell_surface *shsurf)
+send_unminimize(struct weston_surface *surface)
 {
+	struct shell_surface *shsurf = get_shell_surface(surface);
+
+	if (!shsurf)
+		return;
+
 	wl_shell_surface_send_unminimize(&shsurf->resource);
 }
 
 static void
-send_destroy(struct shell_surface *shsurf)
+send_destroy(struct weston_surface *surface)
 {
+	struct shell_surface *shsurf = get_shell_surface(surface);
+
+	if (!shsurf)
+		return;
+
 	struct wl_surface *target_surface;
 	struct wl_client *target_client;
 	struct desktop_shell *shell;
@@ -1531,7 +1556,7 @@ shell_surface_minimize(struct shell_surface *shsurf)
 	shsurf->minimized = 1;
 
 	send_surface_data_focused_state(surface);
-	shsurf->client->send_minimize(shsurf);
+	shsurf->client->send_minimize(shsurf->surface);
 
 	/* Focus next surface in stack */
 	wl_list_for_each(seat, &compositor->seat_list, link)
@@ -1569,7 +1594,7 @@ surface_unminimize(struct shell_surface *shsurf, struct workspace *ws)
 	send_surface_data_focused_state(surface);
 	shsurf->minimized = false;
 	shsurf->type = shsurf->saved_type;
-	shsurf->client->send_unminimize(shsurf);
+	shsurf->client->send_unminimize(shsurf->surface);
 	weston_compositor_damage_all(compositor);
 }
 
@@ -1592,7 +1617,7 @@ surface_data_maximize_handler(struct wl_client *client,
 {
 	struct shell_surface *shsurf = resource->data;
 
-	shsurf->client->send_maximize(shsurf);
+	shsurf->client->send_maximize(shsurf->surface);
 }
 
 static void
@@ -1601,7 +1626,7 @@ surface_data_unmaximize_handler(struct wl_client *client,
 {
 	struct shell_surface *shsurf = resource->data;
 
-	shsurf->client->send_unmaximize(shsurf);
+	shsurf->client->send_unmaximize(shsurf->surface);
 }
 
 static void
@@ -1639,7 +1664,7 @@ surface_data_close_handler(struct wl_client *client,
 
 	shsurf = resource->data;
 
-	shsurf->client->send_destroy(shsurf);
+	shsurf->client->send_destroy(shsurf->surface);
 }
 
 static void
@@ -1854,6 +1879,7 @@ shell_unset_maximized(struct shell_surface *shsurf)
 		shsurf->saved_rotation_valid = false;
 	}
 	surface_data_send_maximized(shsurf->surface_data, 0);
+	shsurf->client->send_unmaximize(shsurf->surface);
 
 	ws = get_current_workspace(shsurf->shell);
 	wl_list_remove(&shsurf->surface->layer_link);
@@ -1903,6 +1929,7 @@ set_surface_type(struct shell_surface *shsurf)
 
 	case SHELL_SURFACE_MAXIMIZED:
 		surface_data_send_maximized(shsurf->surface_data, 1);
+		shsurf->client->send_maximize(shsurf->surface);
 		/* Fall through */
 	case SHELL_SURFACE_FULLSCREEN:
 		shsurf->saved_x = surface->geometry.x;
@@ -1992,19 +2019,17 @@ get_output_panel_height(struct desktop_shell *shell,
 }
 
 static void
-shell_surface_set_maximized(struct wl_client *client,
-			    struct wl_resource *resource,
-			    struct wl_resource *output_resource )
+set_maximized(struct shell_surface *shsurf,
+	       struct weston_output *output)
 {
-	struct shell_surface *shsurf = resource->data;
 	struct weston_surface *es = shsurf->surface;
 	struct desktop_shell *shell = NULL;
 	uint32_t edges = 0, panel_height = 0;
 
 	/* get the default output, if the client set it as NULL
 	   check whether the ouput is available */
-	if (output_resource)
-		shsurf->output = output_resource->data;
+	if (output)
+		shsurf->output = output;
 	else if (es->output)
 		shsurf->output = es->output;
 	else
@@ -2019,6 +2044,47 @@ shell_surface_set_maximized(struct wl_client *client,
 				       shsurf->output->height - panel_height);
 
 	shsurf->next_type = SHELL_SURFACE_MAXIMIZED;
+}
+
+static void
+set_maximized_custom(struct shell_surface *shsurf,
+			struct weston_output *output)
+{
+	struct weston_surface *es = shsurf->surface;
+	uint32_t edges = 0;
+
+	/* get the default output, if the client set it as NULL
+	   check whether the ouput is available */
+	if (output)
+		shsurf->output = output;
+	else if (es->output)
+		shsurf->output = es->output;
+	else
+		shsurf->output = get_default_output(es->compositor);
+
+	edges = WL_SHELL_SURFACE_RESIZE_TOP|WL_SHELL_SURFACE_RESIZE_LEFT;
+
+	shsurf->client->send_configure(shsurf->surface, edges,
+				       shsurf->output->width,
+				       shsurf->output->height);
+
+	shsurf->next_type = SHELL_SURFACE_MAXIMIZED;
+}
+
+static void
+shell_surface_set_maximized(struct wl_client *client,
+			    struct wl_resource *resource,
+			    struct wl_resource *output_resource )
+{
+	struct shell_surface *shsurf = resource->data;
+	struct weston_output *output;
+
+	if (output_resource)
+		output = output_resource->data;
+	else
+		output = NULL;
+
+	set_maximized(shsurf, output);
 }
 
 static void
@@ -4620,6 +4686,7 @@ module_init(struct weston_compositor *ec,
 	ec->shell_interface.set_toplevel = set_toplevel;
 	ec->shell_interface.set_transient = set_transient;
 	ec->shell_interface.set_fullscreen = set_fullscreen;
+	ec->shell_interface.set_maximized = set_maximized_custom;
 	ec->shell_interface.move = surface_move;
 	ec->shell_interface.resize = surface_resize;
 

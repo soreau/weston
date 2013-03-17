@@ -171,6 +171,8 @@ struct ping_timer {
 	uint32_t serial;
 };
 
+struct weston_resize_grab;
+
 struct shell_surface {
 	struct wl_resource resource;
 
@@ -224,6 +226,7 @@ struct shell_surface {
 
 	const struct weston_shell_client *client;
 	struct wl_resource *surface_data;
+	struct weston_resize_grab *resize;
 };
 
 struct shell_grab {
@@ -1246,10 +1249,12 @@ resize_grab_button(struct wl_pointer_grab *grab,
 	struct weston_resize_grab *resize = (struct weston_resize_grab *) grab;
 	struct wl_pointer *pointer = grab->pointer;
 	enum wl_pointer_button_state state = state_w;
+	struct shell_surface *shsurf = resize->base.shsurf;
 
 	if (pointer->button_count == 0 &&
 	    state == WL_POINTER_BUTTON_STATE_RELEASED) {
 		shell_grab_end(&resize->base);
+		shsurf->resize = NULL;
 		free(grab);
 	}
 }
@@ -1284,6 +1289,7 @@ surface_resize(struct shell_surface *shsurf,
 
 	shell_grab_start(&resize->base, &resize_grab_interface, shsurf,
 			 ws->seat.pointer, edges);
+	shsurf->resize = resize;
 
 	return 0;
 }
@@ -3755,6 +3761,13 @@ shell_surface_configure(struct weston_surface *es, int32_t sx, int32_t sy, int32
 
 	if (width == 0)
 		return;
+
+	if (shsurf->client != &shell_client && shsurf->resize) {
+		if (shsurf->resize->edges & WL_SHELL_SURFACE_RESIZE_LEFT)
+			sx = es->geometry.width - width;
+		if (shsurf->resize->edges & WL_SHELL_SURFACE_RESIZE_TOP)
+			sy = es->geometry.height - height;
+	}
 
 	if (shsurf->next_type != SHELL_SURFACE_NONE &&
 	    shsurf->type != shsurf->next_type) {

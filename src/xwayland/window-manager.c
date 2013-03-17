@@ -893,6 +893,8 @@ weston_wm_window_schedule_repaint(struct weston_wm_window *window)
 static void
 weston_wm_handle_property_notify(struct weston_wm *wm, xcb_generic_event_t *event)
 {
+	struct weston_shell_interface *shell_interface =
+		&wm->server->compositor->shell_interface;
 	xcb_property_notify_event_t *property_notify =
 		(xcb_property_notify_event_t *) event;
 	struct weston_wm_window *window;
@@ -912,8 +914,11 @@ weston_wm_handle_property_notify(struct weston_wm *wm, xcb_generic_event_t *even
 				       property_notify->atom);
 
 	if (property_notify->atom == wm->atom.net_wm_name ||
-	    property_notify->atom == XCB_ATOM_WM_NAME)
+	    property_notify->atom == XCB_ATOM_WM_NAME) {
 		weston_wm_window_schedule_repaint(window);
+		if (window->shsurf && window->name)
+			shell_interface->set_title(window->shsurf, window->name);
+	}
 }
 
 static void

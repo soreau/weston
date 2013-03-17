@@ -2205,9 +2205,6 @@ frame_button_handler(struct widget *widget,
 	struct display *display = window->display;
 	int location;
 
-	if (window->type != TYPE_TOPLEVEL)
-		return;
-
 	location = theme_get_location(display->theme, input->sx, input->sy,
 				      frame->widget->allocation.width,
 				      frame->widget->allocation.height,

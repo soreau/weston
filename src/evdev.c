@@ -61,20 +61,6 @@ evdev_led_update(struct evdev_device *device, enum weston_led leds)
 }
 
 static inline void
-evdev_process_syn(struct evdev_device *device, struct input_event *e, int time)
-{
-	switch (e->code) {
-	case SYN_DROPPED:
-		device->button_sync_drop = ~0;
-		break;
-	case SYN_REPORT:
-	default:
-		device->pending_events |= EVDEV_SYN;
-		break;
-	}
-}
-
-static inline void
 evdev_process_key(struct evdev_device *device, struct input_event *e, int time)
 {
 	if (e->value == 2)
@@ -89,26 +75,12 @@ evdev_process_key(struct evdev_device *device, struct input_event *e, int time)
 	case BTN_FORWARD:
 	case BTN_BACK:
 	case BTN_TASK:
-		{
-		const uint32_t button_bit = (1 << (e->code - BTN_MOUSE));
-
-		if (device->button_sync_drop & button_bit) {
-			const int last_value = !!(device->button_down_cache & button_bit);
-			if (last_value == e->value)
-				return;
-			device->button_sync_drop &= ~button_bit;
-		}
 		notify_button(device->seat,
 			      time, e->code,
 			      e->value ? WL_POINTER_BUTTON_STATE_PRESSED :
 					 WL_POINTER_BUTTON_STATE_RELEASED);
-
-		if (e->value)
-			device->button_down_cache |=  button_bit;
-		else
-			device->button_down_cache &= ~button_bit;
-		}
 		break;
+
 	default:
 		notify_key(device->seat,
 			   time, e->code,
@@ -336,7 +308,7 @@ fallback_process(struct evdev_dispatch *dispatch,
 		evdev_process_key(device, event, time);
 		break;
 	case EV_SYN:
-		evdev_process_syn(device, event, time);
+		device->pending_events |= EVDEV_SYN;
 		break;
 	}
 }

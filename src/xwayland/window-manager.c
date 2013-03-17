@@ -400,13 +400,16 @@ weston_wm_window_get_frame_size(struct weston_wm_window *window,
 {
 	struct theme *t = window->wm->theme;
 
-	if (window->fullscreen || window->maximized) {
+	if (window->fullscreen) {
 		*width = window->width;
 		*height = window->height;
-	} else if (window->decorate) {
+	} else if (window->decorate && !window->maximized) {
 		*width = window->width + (t->margin + t->width) * 2;
 		*height = window->height +
 			t->margin * 2 + t->width + t->titlebar_height;
+	} else if (window->maximized) {
+		*width = window->width + t->width * 2;
+		*height = window->height + t->margin;
 	} else {
 		*width = window->width + t->margin * 2;
 		*height = window->height + t->margin * 2;
@@ -419,12 +422,15 @@ weston_wm_window_get_child_position(struct weston_wm_window *window,
 {
 	struct theme *t = window->wm->theme;
 
-	if (window->fullscreen || window->maximized) {
+	if (window->fullscreen) {
 		*x = 0;
 		*y = 0;
-	} else if (window->decorate) {
+	} else if (window->decorate && !window->maximized) {
 		*x = t->margin + t->width;
 		*y = t->margin + t->titlebar_height;
+	} else if (window->maximized) {
+		*x = t->width;
+		*y = t->titlebar_height;
 	} else {
 		*x = t->margin;
 		*y = t->margin;
@@ -799,11 +805,21 @@ weston_wm_window_draw_decoration(void *data)
 	cairo_xcb_surface_set_size(window->cairo_surface, width, height);
 	cr = cairo_create(window->cairo_surface);
 
-	if (window->fullscreen || window->maximized) {
+	if (window->fullscreen) {
 		/* nothing */
-	} else if (window->decorate) {
+	} else if (window->decorate && !window->maximized) {
 		if (wm->focus_window == window)
 			flags |= THEME_FRAME_ACTIVE;
+
+		if (window->name)
+			title = window->name;
+		else
+			title = "untitled";
+
+		theme_render_frame(t, cr, width, height, title, flags);
+	} else if (window->maximized) {
+		if (wm->focus_window == window)
+			flags = THEME_FRAME_MAXIMIZED | THEME_FRAME_ACTIVE;
 
 		if (window->name)
 			title = window->name;
@@ -1767,13 +1783,16 @@ send_configure(struct weston_surface *surface,
 	struct weston_wm *wm = window->wm;
 	struct theme *t = window->wm->theme;
 
-	if (window->fullscreen || window->maximized) {
+	if (window->fullscreen) {
 		window->width = width;
 		window->height = height;
-	} else if (window->decorate) {
+	} else if (window->decorate && !window->maximized) {
 		window->width = width - 2 * (t->margin + t->width);
 		window->height = height - 2 * t->margin -
 			t->titlebar_height - t->width;
+	} else if (window->maximized) {
+		window->width = width - t->width * 2;
+		window->height = height - t->margin * 2;
 	} else {
 		window->width = width - 2 * t->margin;
 		window->height = height - 2 * t->margin;

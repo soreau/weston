@@ -1785,6 +1785,16 @@ send_surface_data_title(struct weston_surface *surface)
 }
 
 static void
+send_surface_data_maximized_state(struct weston_surface *surface)
+{
+	struct shell_surface *shsurf = get_shell_surface(surface);
+	int state = (shsurf->type == SHELL_SURFACE_MAXIMIZED);
+
+	if (shsurf && shsurf->surface_data)
+		surface_data_send_maximized(shsurf->surface_data, state);
+}
+
+static void
 send_surface_data_minimized_state(struct weston_surface *surface)
 {
 	struct shell_surface *shsurf = get_shell_surface(surface);
@@ -1891,7 +1901,7 @@ shell_unset_maximized(struct shell_surface *shsurf)
 						   &shsurf->rotation.transform.link);
 		shsurf->saved_rotation_valid = false;
 	}
-	surface_data_send_maximized(shsurf->surface_data, 0);
+	send_surface_data_maximized_state(shsurf->surface);
 	shsurf->client->send_unmaximize(shsurf->surface);
 
 	ws = get_current_workspace(shsurf->shell);
@@ -1950,7 +1960,7 @@ set_surface_type(struct shell_surface *shsurf)
 			shsurf->surface->geometry.dirty = 1;
 			shsurf->saved_rotation_valid = true;
 		}
-		surface_data_send_maximized(shsurf->surface_data, 1);
+		send_surface_data_maximized_state(shsurf->surface);
 		shsurf->client->send_maximize(shsurf->surface);
 		break;
 
@@ -1974,6 +1984,7 @@ set_surface_type(struct shell_surface *shsurf)
 	if (surface_is_window_list_candidate(shsurf->surface))
 		create_surface_data(shsurf->shell, shsurf);
 	send_surface_data_title(surface);
+	send_surface_data_maximized_state(surface);
 }
 
 static void
@@ -2953,6 +2964,16 @@ surface_data_create_all_objects(struct desktop_shell *shell)
 }
 
 static void
+send_surface_states(struct weston_surface *surface)
+{
+	send_surface_data_maximized_state(surface);
+	send_surface_data_minimized_state(surface);
+	send_surface_data_focused_state(surface);
+	send_surface_data_output_mask(surface);
+	send_surface_data_title(surface);
+}
+
+static void
 surface_data_send_all_info(struct desktop_shell *shell)
 {
 	struct weston_surface *surface;
@@ -2960,18 +2981,10 @@ surface_data_send_all_info(struct desktop_shell *shell)
 
 	ws = get_current_workspace(shell);
 
-	wl_list_for_each(surface, &ws->layer.surface_list, layer_link) {
-		send_surface_data_minimized_state(surface);
-		send_surface_data_focused_state(surface);
-		send_surface_data_output_mask(surface);
-		send_surface_data_title(surface);
-	}
-	wl_list_for_each(surface, &ws->minimized_list, layer_link) {
-		send_surface_data_minimized_state(surface);
-		send_surface_data_focused_state(surface);
-		send_surface_data_output_mask(surface);
-		send_surface_data_title(surface);
-	}
+	wl_list_for_each(surface, &ws->layer.surface_list, layer_link)
+		send_surface_states(surface);
+	wl_list_for_each(surface, &ws->minimized_list, layer_link)
+		send_surface_states(surface);
 }
 
 static enum shell_surface_type

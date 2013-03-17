@@ -3062,15 +3062,23 @@ do_zoom(struct wl_seat *seat, uint32_t time, uint32_t key, uint32_t axis,
 						   wl_fixed_to_double(seat->pointer->y),
 						   NULL)) {
 			if (key == KEY_PAGEUP)
-				increment = output->zoom.increment;
+				increment = output->zoom.increment -
+					    (output->zoom.increment *
+					     output->zoom.level);
 			else if (key == KEY_PAGEDOWN)
-				increment = -output->zoom.increment;
+				increment = -output->zoom.increment +
+					    (output->zoom.increment *
+					     output->zoom.level);
 			else if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
 				/* For every pixel zoom 20th of a step */
-				increment = output->zoom.increment *
+				increment = (output->zoom.increment -
+					    (output->zoom.increment *
+					     output->zoom.level)) *
 					    -wl_fixed_to_double(value) / 20.0;
 			else
 				increment = 0;
+			if (value > 0)
+				increment *= 2;
 
 			output->zoom.level += increment;
 

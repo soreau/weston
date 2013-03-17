@@ -1867,6 +1867,9 @@ xserver_map_shell_surface(struct weston_wm *wm,
 						      window->surface,
 						      &shell_client);
 
+	if (window->name)
+		shell_interface->set_title(window->shsurf, window->name);
+
 	if (window->fullscreen) {
 		window->saved_width = window->width;
 		window->saved_height = window->height;

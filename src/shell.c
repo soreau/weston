@@ -1807,14 +1807,20 @@ send_surface_data_focused_state(struct weston_surface *surface)
 }
 
 static void
+set_title(struct shell_surface *shsurf, const char *title)
+{
+	free(shsurf->title);
+	shsurf->title = strdup(title);
+	send_surface_data_title(shsurf->surface);
+}
+
+static void
 shell_surface_set_title(struct wl_client *client,
 			struct wl_resource *resource, const char *title)
 {
 	struct shell_surface *shsurf = resource->data;
 
-	free(shsurf->title);
-	shsurf->title = strdup(title);
-	send_surface_data_title(shsurf->surface);
+	set_title(shsurf, title);
 }
 
 static void
@@ -4727,6 +4733,7 @@ module_init(struct weston_compositor *ec,
 	ec->shell_interface.set_transient = set_transient;
 	ec->shell_interface.set_fullscreen = set_fullscreen;
 	ec->shell_interface.set_maximized = set_maximized_custom;
+	ec->shell_interface.set_title = set_title;
 	ec->shell_interface.move = surface_move;
 	ec->shell_interface.resize = surface_resize;
 

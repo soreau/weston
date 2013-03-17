@@ -1833,6 +1833,7 @@ send_maximize(struct weston_surface *surface)
 		window->saved_height = window->height;
 	}
 	update_state(_NET_WM_STATE_TOGGLE, &window->maximized);
+	weston_wm_window_set_net_wm_state(window);
 	shell_interface->set_maximized(window->shsurf, NULL);
 }
 
@@ -1850,6 +1851,7 @@ send_unmaximize(struct weston_surface *surface)
 	window->width = window->saved_width;
 	window->height = window->saved_height;
 	update_state(_NET_WM_STATE_TOGGLE, &window->maximized);
+	weston_wm_window_set_net_wm_state(window);
 	shell_interface->set_toplevel(window->shsurf);
 	weston_wm_window_configure(window);
 }

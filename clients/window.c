@@ -4490,7 +4490,7 @@ display_create(int *argc, char *argv[])
 
 	create_cursors(d);
 
-	d->theme = theme_create();
+	d->theme = theme_create(1);
 
 	wl_list_init(&d->window_list);
 

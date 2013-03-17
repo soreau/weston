@@ -588,11 +588,6 @@ static int
 rdp_client_activity(int fd, uint32_t mask, void *data) {
 	freerdp_peer* client = (freerdp_peer *)data;
 
-	if (mask & WL_EVENT_HANGUP) {
-		weston_log("connection closed with %p\n", client);
-		goto out_clean;
-	}
-
 	if (!client->CheckFileDescriptor(client)) {
 		weston_log("unable to checkDescriptor for %p\n", client);
 		goto out_clean;
@@ -818,7 +813,6 @@ xf_input_unicode_keyboard_event(rdpInput* input, UINT16 flags, UINT16 code)
 	weston_log("Client sent a unicode keyboard event (flags:0x%X code:0x%X)\n", flags, code);
 }
 
-void update_register_server_callbacks(rdpUpdate* update);
 
 static void
 xf_suppress_output(rdpContext* context, BYTE allow, RECTANGLE_16* area) {
@@ -864,7 +858,6 @@ rdp_peer_init(freerdp_peer* client, struct rdp_compositor *c)
 	client->Activate = xf_peer_activate;
 
 	client->update->SuppressOutput = xf_suppress_output;
-	update_register_server_callbacks(client->update);
 
 	input = client->input;
 	input->SynchronizeEvent = xf_input_synchronize_event;
@@ -886,7 +879,7 @@ rdp_peer_init(freerdp_peer* client, struct rdp_compositor *c)
 		fd = (int)(long)(rfds[i]);
 
 		peerCtx->fds[i] = fd;
-		peerCtx->events[i] = wl_event_loop_add_fd(loop, fd, WL_EVENT_READABLE | WL_EVENT_HANGUP,
+		peerCtx->events[i] = wl_event_loop_add_fd(loop, fd, WL_EVENT_READABLE,
 				rdp_client_activity, client);
 	}
 	for( ; i < 32; i++) {

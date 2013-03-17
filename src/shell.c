@@ -1955,9 +1955,11 @@ set_surface_type(struct shell_surface *shsurf)
 		shsurf->client->send_maximize(shsurf->surface);
 		/* Fall through */
 	case SHELL_SURFACE_FULLSCREEN:
-		shsurf->saved_x = surface->geometry.x;
-		shsurf->saved_y = surface->geometry.y;
-		shsurf->saved_position_valid = true;
+		if (!shsurf->saved_position_valid) {
+			shsurf->saved_x = surface->geometry.x;
+			shsurf->saved_y = surface->geometry.y;
+			shsurf->saved_position_valid = true;
+		}
 
 		if (!wl_list_empty(&shsurf->rotation.transform.link)) {
 			wl_list_remove(&shsurf->rotation.transform.link);

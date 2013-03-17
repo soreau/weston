@@ -72,11 +72,11 @@ struct weston_mode {
 struct weston_shell_client {
 	void (*send_configure)(struct weston_surface *surface,
 			       uint32_t edges, int32_t width, int32_t height);
-	void (*send_maximize)(struct shell_surface *shsurf);
-	void (*send_unmaximize)(struct shell_surface *shsurf);
-	void (*send_minimize)(struct shell_surface *shsurf);
-	void (*send_unminimize)(struct shell_surface *shsurf);
-	void (*send_destroy)(struct shell_surface *shsurf);
+	void (*send_maximize)(struct weston_surface *surface);
+	void (*send_unmaximize)(struct weston_surface *surface);
+	void (*send_minimize)(struct weston_surface *surface);
+	void (*send_unminimize)(struct weston_surface *surface);
+	void (*send_destroy)(struct weston_surface *surface);
 };
 
 struct weston_shell_interface {
@@ -94,6 +94,8 @@ struct weston_shell_interface {
 	void (*set_fullscreen)(struct shell_surface *shsurf,
 			       uint32_t method,
 			       uint32_t framerate,
+			       struct weston_output *output);
+	void (*set_maximized)(struct shell_surface *shsurf,
 			       struct weston_output *output);
 	int (*move)(struct shell_surface *shsurf, struct weston_seat *ws);
 	int (*resize)(struct shell_surface *shsurf,

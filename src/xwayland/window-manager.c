@@ -113,6 +113,7 @@ struct weston_wm_window {
 	int decorate;
 	int override_redirect;
 	int fullscreen;
+	int maximized;
 };
 
 static struct weston_wm_window *
@@ -373,9 +374,13 @@ weston_wm_window_read_properties(struct weston_wm_window *window)
 		case TYPE_NET_WM_STATE:
 			window->fullscreen = 0;
 			atom = xcb_get_property_value(reply);
-			for (i = 0; i < reply->value_len; i++)
+			for (i = 0; i < reply->value_len; i++) {
 				if (atom[i] == wm->atom.net_wm_state_fullscreen)
 					window->fullscreen = 1;
+				if (atom[i] == wm->atom.net_wm_state_maximized_vert ||
+					atom[i] == wm->atom.net_wm_state_maximized_horz)
+					window->maximized = 1;
+			}
 			break;
 		case TYPE_MOTIF_WM_HINTS:
 			hints = xcb_get_property_value(reply);
@@ -395,7 +400,7 @@ weston_wm_window_get_frame_size(struct weston_wm_window *window,
 {
 	struct theme *t = window->wm->theme;
 
-	if (window->fullscreen) {
+	if (window->fullscreen || window->maximized) {
 		*width = window->width;
 		*height = window->height;
 	} else if (window->decorate) {
@@ -414,7 +419,7 @@ weston_wm_window_get_child_position(struct weston_wm_window *window,
 {
 	struct theme *t = window->wm->theme;
 
-	if (window->fullscreen) {
+	if (window->fullscreen || window->maximized) {
 		*x = 0;
 		*y = 0;
 	} else if (window->decorate) {
@@ -468,7 +473,7 @@ weston_wm_handle_configure_request(struct weston_wm *wm, xcb_generic_event_t *ev
 
 	window = hash_table_lookup(wm->window_hash, configure_request->window);
 
-	if (window->fullscreen) {
+	if (window->fullscreen || window->maximized) {
 		weston_wm_window_send_configure_notify(window);
 		return;
 	}
@@ -626,12 +631,16 @@ static void
 weston_wm_window_set_net_wm_state(struct weston_wm_window *window)
 {
 	struct weston_wm *wm = window->wm;
-	uint32_t property[1];
+	uint32_t property[3];
 	int i;
 
 	i = 0;
 	if (window->fullscreen)
 		property[i++] = wm->atom.net_wm_state_fullscreen;
+	if (window->maximized) {
+		property[i++] = wm->atom.net_wm_state_maximized_vert;
+		property[i++] = wm->atom.net_wm_state_maximized_horz;
+	}
 
 	xcb_change_property(wm->conn,
 			    XCB_PROP_MODE_REPLACE,
@@ -790,7 +799,7 @@ weston_wm_window_draw_decoration(void *data)
 	cairo_xcb_surface_set_size(window->cairo_surface, width, height);
 	cr = cairo_create(window->cairo_surface);
 
-	if (window->fullscreen) {
+	if (window->fullscreen || window->maximized) {
 		/* nothing */
 	} else if (window->decorate) {
 		if (wm->focus_window == window)
@@ -826,7 +835,7 @@ weston_wm_window_draw_decoration(void *data)
 		window->surface->geometry.dirty = 1;
 	}
 
-	if (window->surface && !window->fullscreen) {
+	if (window->surface && (!window->fullscreen || !window->maximized)) {
 		pixman_region32_fini(&window->surface->pending.input);
 		pixman_region32_init_rect(&window->surface->pending.input,
 					  t->margin, t->margin,
@@ -1089,6 +1098,23 @@ weston_wm_window_handle_state(struct weston_wm_window *window,
 				shell_interface->set_fullscreen(window->shsurf,
 								WL_SHELL_SURFACE_FULLSCREEN_METHOD_DEFAULT,
 								0, NULL);
+		} else {
+			shell_interface->set_toplevel(window->shsurf);
+			window->width = window->saved_width;
+			window->height = window->saved_height;
+			weston_wm_window_configure(window);
+		}
+	}
+	if ((property == wm->atom.net_wm_state_maximized_vert ||
+	     property == wm->atom.net_wm_state_maximized_horz) &&
+	     update_state(action, &window->maximized)) {
+		weston_wm_window_set_net_wm_state(window);
+		if (window->maximized) {
+			window->saved_width = window->width;
+			window->saved_height = window->height;
+
+			if (window->shsurf)
+				shell_interface->set_maximized(window->shsurf, NULL);
 		} else {
 			shell_interface->set_toplevel(window->shsurf);
 			window->width = window->saved_width;
@@ -1404,6 +1430,8 @@ weston_wm_get_resources(struct weston_wm *wm)
 		{ "_NET_WM_ICON",	F(atom.net_wm_icon) },
 		{ "_NET_WM_STATE",	F(atom.net_wm_state) },
 		{ "_NET_WM_STATE_FULLSCREEN", F(atom.net_wm_state_fullscreen) },
+		{ "_NET_WM_STATE_MAXIMIZED_VERT", F(atom.net_wm_state_maximized_vert) },
+		{ "_NET_WM_STATE_MAXIMIZED_HORZ", F(atom.net_wm_state_maximized_horz) },
 		{ "_NET_WM_USER_TIME", F(atom.net_wm_user_time) },
 		{ "_NET_WM_ICON_NAME", F(atom.net_wm_icon_name) },
 		{ "_NET_WM_WINDOW_TYPE", F(atom.net_wm_window_type) },
@@ -1564,7 +1592,7 @@ weston_wm_create(struct weston_xserver *wxs)
 	xcb_screen_iterator_t s;
 	uint32_t values[1];
 	int sv[2];
-	xcb_atom_t supported[3];
+	xcb_atom_t supported[5];
 
 	wm = malloc(sizeof *wm);
 	if (wm == NULL)
@@ -1624,6 +1652,8 @@ weston_wm_create(struct weston_xserver *wxs)
 	supported[0] = wm->atom.net_wm_moveresize;
 	supported[1] = wm->atom.net_wm_state;
 	supported[2] = wm->atom.net_wm_state_fullscreen;
+	supported[3] = wm->atom.net_wm_state_maximized_vert;
+	supported[4] = wm->atom.net_wm_state_maximized_horz;
 	xcb_change_property(wm->conn,
 			    XCB_PROP_MODE_REPLACE,
 			    wm->screen->root,
@@ -1733,7 +1763,7 @@ send_configure(struct weston_surface *surface,
 	struct weston_wm *wm = window->wm;
 	struct theme *t = window->wm->theme;
 
-	if (window->fullscreen) {
+	if (window->fullscreen || window->maximized) {
 		window->width = width;
 		window->height = height;
 	} else if (window->decorate) {
@@ -1754,29 +1784,54 @@ send_configure(struct weston_surface *surface,
 }
 
 static void
-send_maximize(struct shell_surface *shsurf)
+send_maximize(struct weston_surface *surface)
 {
-	weston_log("TODO: xwayland client maximize\n");
+	struct weston_wm_window *window = get_wm_window(surface);
+	struct weston_wm *wm = window->wm;
+	struct weston_shell_interface *shell_interface =
+		&wm->server->compositor->shell_interface;
+
+	if (window->maximized)
+		return;
+
+	window->saved_width = window->width;
+	window->saved_height = window->height;
+	update_state(_NET_WM_STATE_TOGGLE, &window->maximized);
+	shell_interface->set_maximized(window->shsurf, NULL);
 }
 
 static void
-send_unmaximize(struct shell_surface *shsurf)
+send_unmaximize(struct weston_surface *surface)
 {
-	weston_log("TODO: xwayland client unmaximize\n");
+	struct weston_wm_window *window = get_wm_window(surface);
+	struct weston_wm *wm = window->wm;
+	struct weston_shell_interface *shell_interface =
+		&wm->server->compositor->shell_interface;
+
+	if (!window->maximized)
+		return;
+
+	window->width = window->saved_width;
+	window->height = window->saved_height;
+	update_state(_NET_WM_STATE_TOGGLE, &window->maximized);
+	shell_interface->set_toplevel(window->shsurf);
+	weston_wm_window_configure(window);
 }
 
 static void
-send_minimize(struct shell_surface *shsurf)
+send_minimize(struct weston_surface *surface)
 {
+	/* TODO: Track minimize state */
 }
 
 static void
-send_unminimize(struct shell_surface *shsurf)
+send_unminimize(struct weston_surface *surface)
 {
+	/* TODO: Track minimize state */
 }
 
 static void
-send_destroy(struct shell_surface *shsurf)
+send_destroy(struct weston_surface *surface)
 {
 	weston_log("TODO: xwayland client close\n");
 }
@@ -1814,6 +1869,11 @@ xserver_map_shell_surface(struct weston_wm *wm,
 		shell_interface->set_fullscreen(window->shsurf,
 						WL_SHELL_SURFACE_FULLSCREEN_METHOD_DEFAULT,
 						0, NULL);
+		return;
+	} else if (window->maximized) {
+		window->saved_width = window->width;
+		window->saved_height = window->height;
+		shell_interface->set_maximized(window->shsurf, NULL);
 		return;
 	} else if (!window->override_redirect) {
 		/* ICCCM 4.1.1 */

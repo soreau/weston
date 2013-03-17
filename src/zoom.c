@@ -370,7 +370,7 @@ WL_EXPORT void
 weston_output_init_zoom(struct weston_output *output)
 {
 	output->zoom.active = 0;
-	output->zoom.increment = 0.07;
+	output->zoom.increment = 0.20;
 	output->zoom.max_level = 0.95;
 	output->zoom.level = 0.0;
 	output->zoom.trans_x = 0.0;

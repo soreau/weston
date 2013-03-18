@@ -520,7 +520,7 @@ panel_resize_handler(struct widget *widget,
 
 	launcher_rect.width = x - launcher_rect.x;
 
-	w=170;
+	w=150;
 	h=20;
 
 	if (panel->clock)

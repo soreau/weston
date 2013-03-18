@@ -386,7 +386,7 @@ panel_clock_redraw_handler(struct widget *widget, void *data)
 
 	surface = window_get_surface(clock->panel->window);
 	cr = cairo_create(surface);
-	cairo_select_font_face(cr, "sans",
+	cairo_select_font_face(cr, "helvetica",
 			       CAIRO_FONT_SLANT_NORMAL,
 			       CAIRO_FONT_WEIGHT_NORMAL);
 	cairo_set_font_size(cr, 14);
@@ -1102,7 +1102,7 @@ panel_list_item_redraw_handler(struct widget *widget, void *data)
 	}
 
 	strcpy(title, item->surface->title);
-	cairo_select_font_face(cr, "sans",
+	cairo_select_font_face(cr, "helvetica",
 			       CAIRO_FONT_SLANT_NORMAL,
 			       CAIRO_FONT_WEIGHT_NORMAL);
 	cairo_set_font_size(cr, 14);

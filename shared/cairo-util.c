@@ -339,9 +339,9 @@ theme_create(int rgb)
 	blur_surface(t->shadow, 64);
 
 	/* Titlebar - Top border */
-	r = 0.48;
+	r = 0.40;
 	g = 0.63;
-	b = 0.82;
+	b = 0.87;
 
 	t->active_frame =
 		cairo_image_surface_create (CAIRO_FORMAT_ARGB32, 128, 128);
@@ -439,10 +439,10 @@ theme_render_frame(struct theme *t,
 	cairo_clip(cr);
 
 	cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
-	cairo_select_font_face(cr, "sans",
+	cairo_select_font_face(cr, "helvetica",
 			       CAIRO_FONT_SLANT_NORMAL,
 			       CAIRO_FONT_WEIGHT_BOLD);
-	cairo_set_font_size(cr, 12);
+	cairo_set_font_size(cr, 15);
 	cairo_text_extents(cr, title, &extents);
 	cairo_font_extents (cr, &font_extents);
 	x = (width - extents.width) / 2;

@@ -76,7 +76,7 @@ struct weston_shell_client {
 	void (*send_unmaximize)(struct weston_surface *surface);
 	void (*send_minimize)(struct weston_surface *surface);
 	void (*send_unminimize)(struct weston_surface *surface);
-	void (*send_destroy)(struct weston_surface *surface);
+	void (*send_close)(struct weston_surface *surface);
 };
 
 struct weston_shell_interface {

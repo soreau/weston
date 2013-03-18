@@ -1799,6 +1799,11 @@ send_configure(struct weston_surface *surface,
 	struct weston_wm *wm = window->wm;
 	struct theme *t = window->wm->theme;
 
+	if (width < 200)
+		width = 200;
+	if (height < 200)
+		height = 200;
+
 	if (window->fullscreen) {
 		window->width = width;
 		window->height = height;

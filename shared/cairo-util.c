@@ -371,9 +371,9 @@ theme_create(int rgb)
 	cairo_destroy(cr);
 
 	/* Entire frame - Windows without focus */
-	r = 0.40;
-	g = 0.53;
-	b = 0.72;
+	r = 0.26;
+	g = 0.43;
+	b = 0.62;
 
 	t->inactive_frame =
 		cairo_image_surface_create (CAIRO_FORMAT_ARGB32, 128, 128);
@@ -455,8 +455,13 @@ theme_render_frame(struct theme *t,
 	if (flags & THEME_FRAME_ACTIVE)
 		cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
 	else
-		cairo_set_source_rgb(cr, 0.3, 0.3, 0.3);
+		cairo_set_source_rgb(cr, 0.1, 0.1, 0.1);
 	cairo_show_text(cr, title);
+	if (flags & THEME_FRAME_ACTIVE) {
+		cairo_set_source_rgb(cr, 0.9, 0.9, 0.9);
+		cairo_move_to(cr, x + 1, y - 1);
+		cairo_show_text(cr, title);
+	}
 }
 
 enum theme_location

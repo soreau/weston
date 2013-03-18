@@ -3350,6 +3350,18 @@ handle_unminimize(void *data, struct wl_shell_surface *shell_surface)
 	window->minimized = 0;
 }
 
+static void
+handle_close(void *data, struct wl_shell_surface *shell_surface)
+{
+	struct window *window = data;
+
+	if (window->close_handler)
+		window->close_handler(window->parent,
+		                      window->user_data);
+	else
+		display_exit(window->display);
+}
+
 static const struct wl_shell_surface_listener shell_surface_listener = {
 	handle_ping,
 	handle_configure,
@@ -3357,7 +3369,8 @@ static const struct wl_shell_surface_listener shell_surface_listener = {
 	handle_maximize,
 	handle_unmaximize,
 	handle_minimize,
-	handle_unminimize
+	handle_unminimize,
+	handle_close
 };
 
 void

@@ -1200,37 +1200,14 @@ send_unminimize(struct weston_surface *surface)
 }
 
 static void
-send_destroy(struct weston_surface *surface)
+send_close(struct weston_surface *surface)
 {
 	struct shell_surface *shsurf = get_shell_surface(surface);
 
 	if (!shsurf)
 		return;
 
-	struct wl_surface *target_surface;
-	struct wl_client *target_client;
-	struct desktop_shell *shell;
-	struct weston_compositor *compositor;
-	pid_t pid;
-
-	target_surface = &shsurf->surface->surface;
-	shell = shsurf->shell;
-	compositor = shell->compositor;
-
-	if (!target_surface)
-		return;
-
-	wl_signal_emit(&compositor->kill_signal, target_surface);
-
-	target_client = target_surface->resource.client;
-	wl_client_get_credentials(target_client, &pid, NULL, NULL);
-
-	/* Skip clients that we launched ourselves (the credentials of
-	 * the socketpair is ours) */
-	if (pid == getpid())
-		return;
-
-	kill(pid, SIGTERM);
+	wl_shell_surface_send_close(&shsurf->resource);
 }
 
 static const struct weston_shell_client shell_client = {
@@ -1239,7 +1216,7 @@ static const struct weston_shell_client shell_client = {
 	send_unmaximize,
 	send_minimize,
 	send_unminimize,
-	send_destroy
+	send_close
 };
 
 static void
@@ -1670,7 +1647,7 @@ surface_data_close_handler(struct wl_client *client,
 
 	shsurf = resource->data;
 
-	shsurf->client->send_destroy(shsurf->surface);
+	shsurf->client->send_close(shsurf->surface);
 }
 
 static void

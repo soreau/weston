@@ -1879,7 +1879,7 @@ send_unminimize(struct weston_surface *surface)
 }
 
 static void
-send_destroy(struct weston_surface *surface)
+send_close(struct weston_surface *surface)
 {
 	weston_log("TODO: xwayland client close\n");
 }
@@ -1890,7 +1890,7 @@ static const struct weston_shell_client shell_client = {
 	send_unmaximize,
 	send_minimize,
 	send_unminimize,
-	send_destroy
+	send_close
 };
 
 static void

@@ -1302,7 +1302,7 @@ weston_wm_handle_button(struct weston_wm *wm, xcb_generic_event_t *event)
 		location = theme_get_location(t,
 					      button->event_x,
 					      button->event_y,
-					      width, height, 0);
+					      width, height, window->maximized ? THEME_FRAME_MAXIMIZED : 0);
 
 		switch (location) {
 		case THEME_LOCATION_TITLEBAR:

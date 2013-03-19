@@ -110,6 +110,7 @@ struct weston_wm_window {
 	int width, height;
 	int x, y;
 	int saved_width, saved_height;
+	int saved_size_valid;
 	int decorate;
 	int override_redirect;
 	int fullscreen;
@@ -1142,9 +1143,10 @@ weston_wm_window_handle_state(struct weston_wm_window *window,
 	    update_state(action, &window->fullscreen)) {
 		weston_wm_window_set_net_wm_state(window);
 		if (window->fullscreen) {
-			if (!window->maximized) {
+			if (!window->saved_size_valid) {
 				window->saved_width = window->width;
 				window->saved_height = window->height;
+				window->saved_size_valid = 1;
 			}
 
 			if (window->shsurf)
@@ -1158,6 +1160,7 @@ weston_wm_window_handle_state(struct weston_wm_window *window,
 				shell_interface->set_toplevel(window->shsurf);
 				window->width = window->saved_width;
 				window->height = window->saved_height;
+				window->saved_size_valid = 0;
 				weston_wm_window_configure(window);
 			}
 		}
@@ -1166,9 +1169,10 @@ weston_wm_window_handle_state(struct weston_wm_window *window,
 	     update_state(action, &window->maximized)) {
 		weston_wm_window_set_net_wm_state(window);
 		if (window->maximized) {
-			if (!window->fullscreen) {
+			if (!window->saved_size_valid) {
 				window->saved_width = window->width;
 				window->saved_height = window->height;
+				window->saved_size_valid = 1;
 			}
 
 			if (window->shsurf)
@@ -1177,6 +1181,7 @@ weston_wm_window_handle_state(struct weston_wm_window *window,
 			shell_interface->set_toplevel(window->shsurf);
 			window->width = window->saved_width;
 			window->height = window->saved_height;
+			window->saved_size_valid = 0;
 			weston_wm_window_configure(window);
 		}
 	}
@@ -1867,9 +1872,10 @@ send_maximize(struct weston_surface *surface)
 	if (window->maximized)
 		return;
 
-	if (!window->fullscreen) {
+	if (!window->saved_size_valid) {
 		window->saved_width = window->width;
 		window->saved_height = window->height;
+		window->saved_size_valid = 1;
 	}
 	update_state(_NET_WM_STATE_TOGGLE, &window->maximized);
 	weston_wm_window_set_net_wm_state(window);
@@ -1889,6 +1895,7 @@ send_unmaximize(struct weston_surface *surface)
 
 	window->width = window->saved_width;
 	window->height = window->saved_height;
+	window->saved_size_valid = 0;
 	update_state(_NET_WM_STATE_TOGGLE, &window->maximized);
 	weston_wm_window_set_net_wm_state(window);
 	shell_interface->set_toplevel(window->shsurf);
@@ -1944,18 +1951,20 @@ xserver_map_shell_surface(struct weston_wm *wm,
 		shell_interface->set_title(window->shsurf, window->name);
 
 	if (window->fullscreen) {
-		if (!window->maximized) {
+		if (!window->saved_size_valid) {
 			window->saved_width = window->width;
 			window->saved_height = window->height;
+			window->saved_size_valid = 1;
 		}
 		shell_interface->set_fullscreen(window->shsurf,
 						WL_SHELL_SURFACE_FULLSCREEN_METHOD_DEFAULT,
 						0, NULL);
 		return;
 	} else if (window->maximized) {
-		if (!window->fullscreen) {
+		if (!window->saved_size_valid) {
 			window->saved_width = window->width;
 			window->saved_height = window->height;
+			window->saved_size_valid = 1;
 		}
 		shell_interface->set_maximized(window->shsurf, NULL);
 		return;

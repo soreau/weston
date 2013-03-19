@@ -846,8 +846,9 @@ weston_wm_window_draw_decoration(void *data)
 
 		theme_render_frame(t, cr, width, height, title, flags);
 	} else if (window->decorate && window->maximized) {
+		flags = THEME_FRAME_MAXIMIZED;
 		if (wm->focus_window == window)
-			flags = THEME_FRAME_MAXIMIZED | THEME_FRAME_ACTIVE;
+			flags |= THEME_FRAME_ACTIVE;
 
 		if (window->name)
 			title = window->name;

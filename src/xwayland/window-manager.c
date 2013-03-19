@@ -1081,7 +1081,8 @@ weston_wm_window_handle_moveresize(struct weston_wm_window *window,
 	detail = client_message->data.data32[2];
 	switch (detail) {
 	case _NET_WM_MOVERESIZE_MOVE:
-		shell_interface->move(window->shsurf, seat);
+		if (!window->maximized)
+			shell_interface->move(window->shsurf, seat);
 		break;
 	case _NET_WM_MOVERESIZE_SIZE_TOPLEFT:
 	case _NET_WM_MOVERESIZE_SIZE_TOP:

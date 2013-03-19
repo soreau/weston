@@ -122,6 +122,12 @@ get_wm_window(struct weston_surface *surface);
 static void
 weston_wm_window_schedule_repaint(struct weston_wm_window *window);
 
+static void
+weston_wm_window_configure(void *data);
+
+static void
+send_maximize(struct weston_surface *surface);
+
 const char *
 get_atom_name(xcb_connection_t *c, xcb_atom_t atom)
 {
@@ -321,6 +327,7 @@ weston_wm_window_read_properties(struct weston_wm_window *window)
 	xcb_atom_t *atom;
 	uint32_t i;
 	struct motif_wm_hints *hints;
+	int prev_decorate; /* used to tell if the window->decorate property has changed since last*/
 
 	if (!window->properties_dirty)
 		return;
@@ -333,6 +340,7 @@ weston_wm_window_read_properties(struct weston_wm_window *window)
 					     props[i].atom,
 					     XCB_ATOM_ANY, 0, 2048);
 
+	prev_decorate = window->decorate;
 	window->decorate = !window->override_redirect;
 	for (i = 0; i < ARRAY_LENGTH(props); i++)  {
 		reply = xcb_get_property_reply(wm->conn, cookie[i], NULL);
@@ -386,6 +394,17 @@ weston_wm_window_read_properties(struct weston_wm_window *window)
 			hints = xcb_get_property_value(reply);
 			if (hints->flags & MWM_HINTS_DECORATIONS)
 				window->decorate = hints->decorations > 0;
+			if (prev_decorate != window->decorate) {
+				/* if whether or not we draw decorations has changed, send a configure
+					request to the window to make it redraw itself with everything in order */
+				weston_wm_window_configure(window);
+				if (window->maximized) {
+					/* if the window was already maximized, we need to do it again since the
+						actual size of the window changes when borders/title bar change */
+					window->maximized = 0;
+					send_maximize(window->surface);
+				}
+			}
 			break;
 		default:
 			break;
@@ -407,9 +426,12 @@ weston_wm_window_get_frame_size(struct weston_wm_window *window,
 		*width = window->width + (t->margin + t->width) * 2;
 		*height = window->height +
 			t->margin * 2 + t->width + t->titlebar_height;
-	} else if (window->maximized) {
+	} else if (window->decorate && window->maximized) {
 		*width = window->width + t->width * 2;
 		*height = window->height + t->margin;
+	} else if (!window->decorate && window->maximized) {
+		*width = window->width;
+		*height = window->height;
 	} else {
 		*width = window->width + t->margin * 2;
 		*height = window->height + t->margin * 2;
@@ -428,9 +450,12 @@ weston_wm_window_get_child_position(struct weston_wm_window *window,
 	} else if (window->decorate && !window->maximized) {
 		*x = t->margin + t->width;
 		*y = t->margin + t->titlebar_height;
-	} else if (window->maximized) {
+	} else if (window->decorate && window->maximized) {
 		*x = t->width;
 		*y = t->titlebar_height;
+	} else if (!window->decorate && window->maximized) {
+		*x = 0;
+		*y = 0;
 	} else {
 		*x = t->margin;
 		*y = t->margin;
@@ -807,6 +832,8 @@ weston_wm_window_draw_decoration(void *data)
 
 	if (window->fullscreen) {
 		/* nothing */
+	} else if (!window->decorate && window->maximized) {
+		/* nothing */
 	} else if (window->decorate && !window->maximized) {
 		if (wm->focus_window == window)
 			flags |= THEME_FRAME_ACTIVE;
@@ -817,7 +844,7 @@ weston_wm_window_draw_decoration(void *data)
 			title = "untitled";
 
 		theme_render_frame(t, cr, width, height, title, flags);
-	} else if (window->maximized) {
+	} else if (window->decorate && window->maximized) {
 		if (wm->focus_window == window)
 			flags = THEME_FRAME_MAXIMIZED | THEME_FRAME_ACTIVE;
 
@@ -1098,9 +1125,6 @@ update_state(int action, int *state)
 
 	return changed;
 }
-
-static void
-weston_wm_window_configure(void *data);
 
 static void
 weston_wm_window_handle_state(struct weston_wm_window *window,
@@ -1813,9 +1837,12 @@ send_configure(struct weston_surface *surface,
 		window->width = width - 2 * (t->margin + t->width);
 		window->height = height - 2 * t->margin -
 			t->titlebar_height - t->width;
-	} else if (window->maximized) {
+	} else if (window->decorate && window->maximized) {
 		window->width = width - t->width * 2;
 		window->height = height - t->margin * 2;
+	} else if (!window->decorate && window->maximized) {
+		window->width = width;
+		window->height = height;
 	} else {
 		window->width = width - 2 * t->margin;
 		window->height = height - 2 * t->margin;

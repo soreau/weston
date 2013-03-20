@@ -1212,6 +1212,9 @@ weston_wm_handle_client_message(struct weston_wm *wm,
 		weston_wm_window_handle_moveresize(window, client_message);
 	else if (client_message->type == wm->atom.net_wm_state)
 		weston_wm_window_handle_state(window, client_message);
+	else if (client_message->type == wm->atom.wm_change_state)
+		weston_log("DEBUG: CSD minimize event received.\n");
+	}
 }
 
 enum cursor_type {
@@ -1492,6 +1495,7 @@ weston_wm_get_resources(struct weston_wm *wm)
 		{ "WM_TAKE_FOCUS",	F(atom.wm_take_focus) },
 		{ "WM_DELETE_WINDOW",	F(atom.wm_delete_window) },
 		{ "WM_STATE",		F(atom.wm_state) },
+		{ "WM_CHANGE_STATE",	F(atom.wm_change_state) },
 		{ "WM_S0",		F(atom.wm_s0) },
 		{ "WM_CLIENT_MACHINE",	F(atom.wm_client_machine) },
 		{ "_NET_WM_NAME",	F(atom.net_wm_name) },
@@ -1661,7 +1665,7 @@ weston_wm_create(struct weston_xserver *wxs)
 	xcb_screen_iterator_t s;
 	uint32_t values[1];
 	int sv[2];
-	xcb_atom_t supported[5];
+	xcb_atom_t supported[6];
 
 	wm = malloc(sizeof *wm);
 	if (wm == NULL)
@@ -1723,6 +1727,7 @@ weston_wm_create(struct weston_xserver *wxs)
 	supported[2] = wm->atom.net_wm_state_fullscreen;
 	supported[3] = wm->atom.net_wm_state_maximized_vert;
 	supported[4] = wm->atom.net_wm_state_maximized_horz;
+	supported[5] = wm->atom.wm_change_state;
 	xcb_change_property(wm->conn,
 			    XCB_PROP_MODE_REPLACE,
 			    wm->screen->root,

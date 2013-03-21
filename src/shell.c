@@ -186,6 +186,7 @@ struct shell_surface {
 	int32_t saved_x, saved_y;
 	bool saved_position_valid;
 	bool saved_rotation_valid;
+	bool unsnap_maximize_active;
 	int minimized;
 	int unresponsive;
 
@@ -227,6 +228,7 @@ struct shell_surface {
 	const struct weston_shell_client *client;
 	struct wl_resource *surface_data;
 	struct weston_resize_grab *resize;
+	struct weston_move_grab *move;
 };
 
 struct shell_grab {
@@ -1023,16 +1025,35 @@ move_grab_motion(struct wl_pointer_grab *grab,
 	struct wl_pointer *pointer = grab->pointer;
 	struct shell_surface *shsurf = move->base.shsurf;
 	struct weston_surface *es;
-	int dx = wl_fixed_to_int(pointer->x + move->dx);
-	int dy = wl_fixed_to_int(pointer->y + move->dy);
+	int pointer_dx;
+	int pointer_dy;
+	double distance;
+	int dx;
+	int dy;
 
 	if (!shsurf)
 		return;
 
 	es = shsurf->surface;
 
-	weston_surface_configure(es, dx, dy,
-				 es->geometry.width, es->geometry.height);
+	if (shsurf->type == SHELL_SURFACE_MAXIMIZED) {
+		pointer_dx = wl_fixed_to_int(pointer->grab_x - pointer->x);
+		pointer_dy = wl_fixed_to_int(pointer->grab_y - pointer->y);
+		distance = sqrt(pointer_dx * pointer_dx + pointer_dy * pointer_dy);
+
+		/* If pointer travels enough distance, we unsnap the surface
+		 * from maximized state */
+		if (distance >= 24.0) {
+			shsurf->unsnap_maximize_active = true;
+			shsurf->client->send_unmaximize(shsurf->surface);
+		}
+	} else {
+		dx = wl_fixed_to_int(pointer->x + move->dx);
+		dy = wl_fixed_to_int(pointer->y + move->dy);
+
+		weston_surface_configure(es, dx, dy,
+					 es->geometry.width, es->geometry.height);
+	}
 
 	weston_compositor_schedule_repaint(es->compositor);
 }
@@ -1044,12 +1065,14 @@ move_grab_button(struct wl_pointer_grab *grab,
 	struct shell_grab *shell_grab = container_of(grab, struct shell_grab,
 						    grab);
 	struct wl_pointer *pointer = grab->pointer;
+	struct shell_surface *shsurf = shell_grab->shsurf;
 	enum wl_pointer_button_state state = state_w;
 
 	if (pointer->button_count == 0 &&
 	    state == WL_POINTER_BUTTON_STATE_RELEASED) {
 		shell_grab_end(shell_grab);
 		free(grab);
+		shsurf->move = NULL;
 	}
 }
 
@@ -1078,6 +1101,8 @@ surface_move(struct shell_surface *shsurf, struct weston_seat *ws)
 			ws->seat.pointer->grab_x;
 	move->dy = wl_fixed_from_double(shsurf->surface->geometry.y) -
 			ws->seat.pointer->grab_y;
+
+	shsurf->move = move;
 
 	shell_grab_start(&move->base, &move_grab_interface, shsurf,
 			 ws->seat.pointer, DESKTOP_SHELL_CURSOR_MOVE);
@@ -1869,9 +1894,12 @@ shell_unset_maximized(struct shell_surface *shsurf)
 	struct workspace *ws;
 	/* undo all maximized things here */
 	shsurf->output = get_default_output(shsurf->surface->compositor);
-	weston_surface_set_position(shsurf->surface,
-				    shsurf->saved_x,
-				    shsurf->saved_y);
+	if (shsurf->saved_position_valid) {
+		weston_surface_set_position(shsurf->surface,
+					    shsurf->saved_x,
+					    shsurf->saved_y);
+	}
+
 	if (shsurf->saved_rotation_valid) {
 		wl_list_insert(&shsurf->surface->geometry.transformation_list,
 						   &shsurf->rotation.transform.link);
@@ -2958,8 +2986,7 @@ move_binding(struct wl_seat *seat, uint32_t time, uint32_t button, void *data)
 		return;
 
 	shsurf = get_shell_surface(surface);
-	if (shsurf == NULL || shsurf->type == SHELL_SURFACE_FULLSCREEN ||
-	    shsurf->type == SHELL_SURFACE_MAXIMIZED)
+	if (shsurf == NULL || shsurf->type == SHELL_SURFACE_FULLSCREEN)
 		return;
 
 	surface_move(shsurf, (struct weston_seat *) seat);
@@ -3758,6 +3785,7 @@ shell_surface_configure(struct weston_surface *es, int32_t sx, int32_t sy,
 {
 	struct shell_surface *shsurf = get_shell_surface(es);
 	struct desktop_shell *shell = shsurf->shell;
+	struct wl_pointer *pointer;
 
 	int type_changed = 0;
 
@@ -3769,6 +3797,28 @@ shell_surface_configure(struct weston_surface *es, int32_t sx, int32_t sy,
 
 	if (width == 0)
 		return;
+
+	/* If there is active move grab, and we are about to change surface type
+	 * from maximized to toplevel state, it's time to adjust its position (unsnap) */
+	if (shsurf->unsnap_maximize_active &&
+	    ((shsurf->client == &shell_client) ||
+	    (shsurf->client != &shell_client &&
+	    es->geometry.width != width && es->geometry.height != height))) {
+		pointer = shsurf->move->base.pointer;
+
+		weston_surface_set_position(shsurf->surface,
+				wl_fixed_to_double(pointer->x) - (width / 2),
+				wl_fixed_to_double(pointer->y) - 45);
+
+		shsurf->move->dx = wl_fixed_from_double(es->geometry.x) -
+					pointer->x;
+		shsurf->move->dy = wl_fixed_from_double(es->geometry.y) -
+					pointer->y;
+
+		shsurf->saved_position_valid = false;
+
+		shsurf->unsnap_maximize_active = false;
+	}
 
 	if (shsurf->client != &shell_client && shsurf->resize) {
 		if (shsurf->resize->edges & WL_SHELL_SURFACE_RESIZE_LEFT)

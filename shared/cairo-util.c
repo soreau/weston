@@ -339,9 +339,9 @@ theme_create(int rgb)
 	blur_surface(t->shadow, 64);
 
 	/* Titlebar - Top border */
-	r = 0.40;
-	g = 0.63;
-	b = 0.87;
+	r = 0.25;
+	g = 0.25;
+	b = 0.25;
 
 	t->active_frame =
 		cairo_image_surface_create (CAIRO_FORMAT_ARGB32, 128, 128);
@@ -355,9 +355,9 @@ theme_create(int rgb)
 		cairo_pattern_add_color_stop_rgb(pattern, 0.0, b, g, r);
 
 	/* The rest - Right, left and bottom borders */
-	r = 0.40;
-	g = 0.53;
-	b = 0.72;
+	r = 0.45;
+	g = 0.45;
+	b = 0.45;
 
 	if (rgb)
 		cairo_pattern_add_color_stop_rgb(pattern, 0.2, r, g, b);
@@ -371,9 +371,9 @@ theme_create(int rgb)
 	cairo_destroy(cr);
 
 	/* Entire frame - Windows without focus */
-	r = 0.26;
-	g = 0.43;
-	b = 0.62;
+	r = 0.30;
+	g = 0.30;
+	b = 0.30;
 
 	t->inactive_frame =
 		cairo_image_surface_create (CAIRO_FORMAT_ARGB32, 128, 128);

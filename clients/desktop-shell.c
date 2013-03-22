@@ -525,7 +525,7 @@ panel_resize_handler(struct widget *widget,
 
 	if (panel->clock)
 		widget_set_allocation(panel->clock->widget,
-				      width - w - 8, 4, w, 24);
+				      width - w, 4, w, 24);
 
 	widget_get_allocation(panel->clock->widget, &clock_rect);
 

@@ -95,12 +95,15 @@ struct weston_shell_interface {
 			       uint32_t method,
 			       uint32_t framerate,
 			       struct weston_output *output);
+	void (*set_minimized)(struct shell_surface *shsurf);
+	void (*set_unminimized)(struct shell_surface *shsurf);
 	void (*set_maximized)(struct shell_surface *shsurf,
 			      struct weston_output *output);
 	void (*set_title)(struct shell_surface *shsurf, const char *title);
 	int (*move)(struct shell_surface *shsurf, struct weston_seat *ws);
 	int (*resize)(struct shell_surface *shsurf,
 		      struct weston_seat *ws, uint32_t edges);
+	void (*close)(struct shell_surface *shsurf);
 
 };
 

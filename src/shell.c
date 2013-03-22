@@ -1160,7 +1160,7 @@ send_maximize(struct weston_surface *surface)
 {
 	struct shell_surface *shsurf = get_shell_surface(surface);
 
-	if (!shsurf)
+	if (!shsurf || shsurf->minimized)
 		return;
 
 	wl_shell_surface_send_maximize(&shsurf->resource);
@@ -1171,7 +1171,7 @@ send_unmaximize(struct weston_surface *surface)
 {
 	struct shell_surface *shsurf = get_shell_surface(surface);
 
-	if (!shsurf)
+	if (!shsurf || shsurf->minimized)
 		return;
 
 	wl_shell_surface_send_unmaximize(&shsurf->resource);
@@ -1490,7 +1490,66 @@ shell_surface_pong(struct wl_client *client, struct wl_resource *resource,
 }
 
 static void
-send_surface_data_focused_state(struct weston_surface *surface);
+send_surface_data_output_mask(struct weston_surface *surface)
+{
+	struct shell_surface *shsurf = get_shell_surface(surface);
+
+	if (shsurf && shsurf->surface_data)
+		surface_data_send_output_mask(shsurf->surface_data,
+						surface->output_mask);
+}
+
+static void
+send_surface_data_title(struct weston_surface *surface)
+{
+	struct shell_surface *shsurf = get_shell_surface(surface);
+
+	if (shsurf && shsurf->surface_data)
+		surface_data_send_title(shsurf->surface_data,
+						shsurf->title == NULL ?
+						"Surface" : shsurf->title);
+}
+
+static void
+send_surface_data_maximized_state(struct weston_surface *surface)
+{
+	struct shell_surface *shsurf = get_shell_surface(surface);
+	int state = (shsurf->type == SHELL_SURFACE_MAXIMIZED);
+
+	if (shsurf && shsurf->surface_data)
+		surface_data_send_maximized(shsurf->surface_data, state);
+}
+
+static void
+send_surface_data_minimized_state(struct weston_surface *surface)
+{
+	struct shell_surface *shsurf = get_shell_surface(surface);
+
+	if (shsurf && shsurf->surface_data)
+		surface_data_send_minimized(shsurf->surface_data,
+					shsurf->minimized ? 1 : 0);
+}
+
+static void
+send_surface_data_focused_state(struct weston_surface *surface)
+{
+	struct shell_surface *shsurf = get_shell_surface(surface);
+	struct focus_state *state;
+	struct workspace *ws;
+	bool focused = false;
+
+	if (shsurf && shsurf->surface_data) {
+		ws = get_current_workspace(shsurf->shell);
+		wl_list_for_each(state, &ws->focus_list, link)
+			if (state->keyboard_focus == shsurf->surface)
+				focused = true;
+		surface_data_send_focused(shsurf->surface_data,
+					focused);
+	}
+}
+
+static void
+shell_surface_unminimize(struct shell_surface *shsurf);
 
 static void
 activate(struct desktop_shell *shell, struct weston_surface *es,
@@ -1503,6 +1562,9 @@ shell_surface_focus(struct shell_surface *shsurf)
 	struct weston_compositor *compositor;
 	struct weston_surface *surface;
 	struct weston_seat *seat;
+
+	if (shsurf->minimized)
+		shell_surface_unminimize(shsurf);
 
 	shell = shsurf->shell;
 	compositor = shell->compositor;
@@ -1557,6 +1619,7 @@ shell_surface_minimize(struct shell_surface *shsurf)
 				wl_keyboard_set_focus(seat->seat.keyboard, NULL);
 		}
 
+	send_surface_data_minimized_state(shsurf->surface);
 	weston_compositor_damage_all(compositor);
 }
 
@@ -1640,6 +1703,12 @@ surface_data_focus_handler(struct wl_client *client,
 }
 
 static void
+shell_surface_send_close(struct shell_surface *shsurf)
+{
+	shsurf->client->send_close(shsurf->surface);
+}
+
+static void
 surface_data_close_handler(struct wl_client *client,
 				struct wl_resource *resource)
 {
@@ -1647,7 +1716,7 @@ surface_data_close_handler(struct wl_client *client,
 
 	shsurf = resource->data;
 
-	shsurf->client->send_close(shsurf->surface);
+	shell_surface_send_close(shsurf);
 }
 
 static void
@@ -1740,65 +1809,6 @@ surface_is_window_list_candidate(struct weston_surface *surface)
 }
 
 static void
-send_surface_data_output_mask(struct weston_surface *surface)
-{
-	struct shell_surface *shsurf = get_shell_surface(surface);
-
-	if (shsurf && shsurf->surface_data)
-		surface_data_send_output_mask(shsurf->surface_data,
-						surface->output_mask);
-}
-
-static void
-send_surface_data_title(struct weston_surface *surface)
-{
-	struct shell_surface *shsurf = get_shell_surface(surface);
-
-	if (shsurf && shsurf->surface_data)
-		surface_data_send_title(shsurf->surface_data,
-						shsurf->title == NULL ?
-						"Surface" : shsurf->title);
-}
-
-static void
-send_surface_data_maximized_state(struct weston_surface *surface)
-{
-	struct shell_surface *shsurf = get_shell_surface(surface);
-	int state = (shsurf->type == SHELL_SURFACE_MAXIMIZED);
-
-	if (shsurf && shsurf->surface_data)
-		surface_data_send_maximized(shsurf->surface_data, state);
-}
-
-static void
-send_surface_data_minimized_state(struct weston_surface *surface)
-{
-	struct shell_surface *shsurf = get_shell_surface(surface);
-
-	if (shsurf && shsurf->surface_data)
-		surface_data_send_minimized(shsurf->surface_data,
-					shsurf->minimized ? 1 : 0);
-}
-
-static void
-send_surface_data_focused_state(struct weston_surface *surface)
-{
-	struct shell_surface *shsurf = get_shell_surface(surface);
-	struct focus_state *state;
-	struct workspace *ws;
-	bool focused = false;
-
-	if (shsurf && shsurf->surface_data) {
-		ws = get_current_workspace(shsurf->shell);
-		wl_list_for_each(state, &ws->focus_list, link)
-			if (state->keyboard_focus == shsurf->surface)
-				focused = true;
-		surface_data_send_focused(shsurf->surface_data,
-					focused);
-	}
-}
-
-static void
 set_title(struct shell_surface *shsurf, const char *title)
 {
 	free(shsurf->title);
@@ -1852,6 +1862,7 @@ shell_unset_fullscreen(struct shell_surface *shsurf)
 	shsurf->fullscreen_output = NULL;
 	weston_surface_set_position(shsurf->surface,
 				    shsurf->saved_x, shsurf->saved_y);
+	shsurf->saved_position_valid = false;
 	if (shsurf->saved_rotation_valid) {
 		wl_list_insert(&shsurf->surface->geometry.transformation_list,
         	               &shsurf->rotation.transform.link);
@@ -1872,6 +1883,7 @@ shell_unset_maximized(struct shell_surface *shsurf)
 	weston_surface_set_position(shsurf->surface,
 				    shsurf->saved_x,
 				    shsurf->saved_y);
+	shsurf->saved_position_valid = false;
 	if (shsurf->saved_rotation_valid) {
 		wl_list_insert(&shsurf->surface->geometry.transformation_list,
 						   &shsurf->rotation.transform.link);
@@ -1959,7 +1971,7 @@ set_surface_type(struct shell_surface *shsurf)
 static void
 set_toplevel(struct shell_surface *shsurf)
 {
-       shsurf->next_type = SHELL_SURFACE_TOPLEVEL;
+	shsurf->next_type = SHELL_SURFACE_TOPLEVEL;
 }
 
 static void
@@ -2029,6 +2041,9 @@ set_maximized(struct shell_surface *shsurf,
 	struct desktop_shell *shell = NULL;
 	uint32_t edges = 0, panel_height = 0;
 
+	if (shsurf->minimized)
+		return;
+
 	/* get the default output, if the client set it as NULL
 	   check whether the ouput is available */
 	if (output)
@@ -2055,6 +2070,9 @@ set_maximized_custom(struct shell_surface *shsurf,
 {
 	struct weston_surface *es = shsurf->surface;
 	uint32_t edges = 0;
+
+	if (shsurf->minimized)
+		return;
 
 	/* get the default output, if the client set it as NULL
 	   check whether the ouput is available */
@@ -2097,7 +2115,6 @@ shell_surface_set_minimized(struct wl_client *client,
 	struct shell_surface *shsurf = resource->data;
 
 	shell_surface_minimize(shsurf);
-	send_surface_data_minimized_state(shsurf->surface);
 }
 
 static void
@@ -4715,10 +4732,13 @@ module_init(struct weston_compositor *ec,
 	ec->shell_interface.set_toplevel = set_toplevel;
 	ec->shell_interface.set_transient = set_transient;
 	ec->shell_interface.set_fullscreen = set_fullscreen;
+	ec->shell_interface.set_minimized = shell_surface_minimize;
+	ec->shell_interface.set_unminimized = shell_surface_unminimize;
 	ec->shell_interface.set_maximized = set_maximized_custom;
 	ec->shell_interface.set_title = set_title;
 	ec->shell_interface.move = surface_move;
 	ec->shell_interface.resize = surface_resize;
+	ec->shell_interface.close = shell_surface_send_close;
 
 	wl_list_init(&shell->input_panel.surfaces);
 

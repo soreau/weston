@@ -89,6 +89,43 @@ struct motif_wm_hints {
 #define _NET_WM_MOVERESIZE_MOVE_KEYBOARD    10   /* move via keyboard */
 #define _NET_WM_MOVERESIZE_CANCEL           11   /* cancel operation */
 
+/* Frame Buttons */
+enum frame_button_action {
+	FRAME_BUTTON_NONE = 0,
+	FRAME_BUTTON_ICON,
+	FRAME_BUTTON_MINIMIZE,
+	FRAME_BUTTON_MAXIMIZE,
+	FRAME_BUTTON_CLOSE,
+};
+
+enum frame_button_pointer {
+	FRAME_BUTTON_DEFAULT = 0,
+	FRAME_BUTTON_HOVER,
+	FRAME_BUTTON_ACTIVE,
+};
+
+struct rectangle {
+	int32_t x;
+	int32_t y;
+	int32_t width;
+	int32_t height;
+};
+
+struct frame_widget {
+	struct rectangle allocation;
+	void *user_data;
+};
+
+struct frame_button {
+	struct frame_widget *widget;
+	cairo_surface_t *icon;
+	enum frame_button_action type;
+	enum frame_button_pointer state;
+	struct wl_list link; /* button_list */
+	int highlight;
+};
+
+/* xwayland window struct */
 struct weston_wm_window {
 	struct weston_wm *wm;
 	xcb_window_t id;
@@ -96,6 +133,7 @@ struct weston_wm_window {
 	cairo_surface_t *cairo_surface;
 	struct weston_surface *surface;
 	struct shell_surface *shsurf;
+	struct wl_list button_list;
 	struct wl_listener surface_destroy_listener;
 	struct wl_event_source *repaint_source;
 	struct wl_event_source *configure_source;
@@ -115,6 +153,8 @@ struct weston_wm_window {
 	int override_redirect;
 	int fullscreen;
 	int maximized;
+	int minimized;
+	int button_hover;
 };
 
 static struct weston_wm_window *
@@ -811,13 +851,113 @@ weston_wm_handle_unmap_notify(struct weston_wm *wm, xcb_generic_event_t *event)
 }
 
 static void
+widget_set_allocation(struct frame_widget *widget, int32_t x, int32_t y,
+					int32_t width, int32_t height )
+{
+	widget->allocation.x = x;
+	widget->allocation.y = y;
+	widget->allocation.width = width;
+	widget->allocation.height = height;
+}
+
+static void
+frame_button_redraw_state(cairo_t *cr, struct frame_button *button)
+{
+	int width, height, x, y;
+
+	x = button->widget->allocation.x;
+	y = button->widget->allocation.y;
+	width = button->widget->allocation.width - 2;
+	height = button->widget->allocation.height - 2;
+
+	if (!width)
+		return;
+	if (!height)
+		return;
+
+	cairo_set_line_width(cr, 1);
+
+	cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
+	cairo_rectangle(cr, x, y, width, height);
+
+	cairo_stroke_preserve(cr);
+
+	switch (button->state) {
+	case FRAME_BUTTON_DEFAULT:
+		cairo_set_source_rgb(cr, 0.88, 0.88, 0.88);
+		break;
+	case FRAME_BUTTON_HOVER:
+		cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+		break;
+	case FRAME_BUTTON_ACTIVE:
+		cairo_set_source_rgb(cr, 0.7, 0.7, 0.7);
+		break;
+	}
+
+	cairo_fill (cr);
+
+	x += 4;
+
+	cairo_set_source_surface(cr, button->icon, x, y);
+	cairo_paint(cr);
+}
+
+static void
+weston_wm_window_draw_buttons(cairo_t *cr, struct weston_wm_window *window)
+{
+	struct frame_button *button;
+	struct rectangle allocation;
+	struct theme *t = window->wm->theme;
+	int x_r, x_l, y, w = 0, h;
+	int margin, frame_width;
+
+	if (window->maximized) {
+		margin = 0;
+		frame_width = window->width + t->width * 2;
+	}
+	else {
+		margin = t->margin;
+		frame_width = window->width + (t->width + margin) * 2;
+	}
+
+	/* frame internal buttons */
+	x_r = frame_width - t->width - margin;
+	x_l = t->width + margin;
+	y = t->width + margin;
+	wl_list_for_each(button, &window->button_list, link) {
+		const int button_padding = 4;
+		w = cairo_image_surface_get_width(button->icon);
+		h = cairo_image_surface_get_height(button->icon);
+
+		if (button->type == FRAME_BUTTON_ICON) {
+			widget_set_allocation(button->widget,
+					      x_l, y , w + 1, h + 1);
+			x_l += w;
+			x_l += button_padding;
+			allocation = button->widget->allocation;
+			cairo_set_source_surface(cr, button->icon,
+						 allocation.x, allocation.y);
+			cairo_paint(cr);
+		} else {
+			w += 10;
+			x_r -= w;
+			widget_set_allocation(button->widget,
+					      x_r, y , w + 1, h + 1);
+			x_r -= button_padding;
+			frame_button_redraw_state(cr, button);
+		}
+	}
+
+}
+
+static void
 weston_wm_window_draw_decoration(void *data)
 {
 	struct weston_wm_window *window = data;
 	struct weston_wm *wm = window->wm;
 	struct theme *t = wm->theme;
 	cairo_t *cr;
-	int x, y, width, height;
+	int x, y, width, height, padding;
 	const char *title;
 	uint32_t flags = 0;
 
@@ -845,6 +985,7 @@ weston_wm_window_draw_decoration(void *data)
 			title = "untitled";
 
 		theme_render_frame(t, cr, width, height, title, flags);
+		weston_wm_window_draw_buttons(cr, window);
 	} else if (window->decorate && window->maximized) {
 		flags = THEME_FRAME_MAXIMIZED;
 		if (wm->focus_window == window)
@@ -856,6 +997,7 @@ weston_wm_window_draw_decoration(void *data)
 			title = "untitled";
 
 		theme_render_frame(t, cr, width, height, title, flags);
+		weston_wm_window_draw_buttons(cr, window);
 	} else {
 		cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
 		cairo_set_source_rgba(cr, 0, 0, 0, 0);
@@ -873,10 +1015,12 @@ weston_wm_window_draw_decoration(void *data)
 		/* We leave an extra pixel around the X window area to
 		 * make sure we don't sample from the undefined alpha
 		 * channel when filtering. */
+		padding = (window->fullscreen || !window->decorate) ? 0 :
+						 t->titlebar_height - 1;
 		pixman_region32_init_rect(&window->surface->pending.opaque, 
-					  x - 1, y - 1,
+					  x - 1, y - padding,
 					  window->width + 2,
-					  window->height + 2);
+					  window->height + 2 + padding);
 		weston_surface_geometry_dirty(window->surface);
 	}
 
@@ -953,6 +1097,86 @@ weston_wm_handle_property_notify(struct weston_wm *wm, xcb_generic_event_t *even
 }
 
 static void
+weston_surface_repaint(struct weston_wm_window *window)
+{
+	weston_wm_window_draw_decoration(window);
+	weston_surface_geometry_dirty(window->surface);
+}
+
+static int
+frame_button_motion_handler(struct frame_button *button,
+                            float x, float y, void *data)
+{
+	struct frame_widget *widget = button->widget;
+	enum frame_button_pointer previous_button_state = button->state;
+
+	if (x > widget->allocation.x &&
+	    x < (widget->allocation.x + widget->allocation.width) &&
+	    y > widget->allocation.y &&
+	    y < (widget->allocation.y + widget->allocation.height)) {
+		button->state = FRAME_BUTTON_HOVER;
+	} else {
+		button->state = FRAME_BUTTON_DEFAULT;
+	}
+
+	return button->state != previous_button_state;
+}
+
+static struct frame_widget *
+frame_widget_add(void *data, struct rectangle allocation)
+{
+	struct frame_widget *widget;
+
+	widget = calloc(1, sizeof *widget);
+	widget->user_data = data;
+	widget->allocation = allocation;
+
+	return widget;
+}
+
+static void
+frame_widget_destroy(struct frame_widget *widget)
+{
+	free(widget);
+}
+
+static void
+frame_button_create(struct weston_wm_window *window,
+		    enum frame_button_action type,
+		    const char *icon, int x, int y)
+{
+	struct frame_button *frame_button;
+	struct rectangle allocation;
+
+	frame_button = calloc (1, sizeof *frame_button);
+
+	frame_button->icon = load_cairo_surface(icon);
+	if (cairo_surface_status (frame_button->icon) != CAIRO_STATUS_SUCCESS) {
+		weston_log("Failed to load icon: %s\n", icon);
+		return;
+	}
+
+	allocation.x = x;
+	allocation.y = y;
+	allocation.width = cairo_image_surface_get_width(frame_button->icon);
+	allocation.height = cairo_image_surface_get_height(frame_button->icon);
+
+	frame_button->widget = frame_widget_add(window, allocation);
+	frame_button->type = type;
+
+	wl_list_insert(window->button_list.prev, &frame_button->link);
+}
+
+static void
+frame_button_destroy(struct frame_button *frame_button)
+{
+	frame_widget_destroy(frame_button->widget);
+	wl_list_remove(&frame_button->link);
+	cairo_surface_destroy(frame_button->icon);
+	free(frame_button);
+}
+
+static void
 weston_wm_window_create(struct weston_wm *wm,
 			xcb_window_t id, int width, int height, int override)
 {
@@ -975,14 +1199,34 @@ weston_wm_window_create(struct weston_wm *wm,
 	window->override_redirect = override;
 	window->width = width;
 	window->height = height;
-
 	hash_table_insert(wm->window_hash, id, window);
+
+	/* Create empty list for frame buttons */
+	wl_list_init(&window->button_list);
+
+	frame_button_create(window, FRAME_BUTTON_ICON,
+			    DATADIR "/weston/icon_window.png", 100, 30);
+
+	frame_button_create(window, FRAME_BUTTON_CLOSE,
+			    DATADIR "/weston/sign_close.png", 200, 40);
+
+	frame_button_create(window, FRAME_BUTTON_MAXIMIZE,
+			    DATADIR "/weston/sign_maximize.png", 400, 50);
+
+	frame_button_create(window, FRAME_BUTTON_MINIMIZE,
+			    DATADIR "/weston/sign_minimize.png", 500, 60);
 }
 
 static void
 weston_wm_window_destroy(struct weston_wm_window *window)
 {
+	struct frame_button *button, *next;
+
 	hash_table_remove(window->wm->window_hash, window->id);
+
+	wl_list_for_each_safe(button, next, &window->button_list, link)
+		frame_button_destroy(button);
+
 	free(window);
 }
 
@@ -1312,6 +1556,60 @@ weston_wm_window_set_cursor(struct weston_wm *wm, xcb_window_t window_id,
 }
 
 static void
+send_minimize(struct weston_surface *surface);
+
+static void
+send_unminimize(struct weston_surface *surface);
+
+static void
+send_maximize(struct weston_surface *surface);
+
+static void
+send_unmaximize(struct weston_surface *surface);
+
+static void
+send_close(struct weston_surface *surface);
+
+static void
+frame_button_button(struct weston_wm_window *window, int state)
+{
+	struct frame_button *button;
+	int repaint = 0;
+
+	wl_list_for_each(button, &window->button_list, link) {
+		if (button->state == FRAME_BUTTON_HOVER && state) {
+			button->state = FRAME_BUTTON_ACTIVE;
+			repaint = 1;
+		} else if (button->state == FRAME_BUTTON_ACTIVE && !state) {
+			switch (button->type) {
+			case FRAME_BUTTON_NONE:
+			case FRAME_BUTTON_ICON:
+			default:
+				break;
+			case FRAME_BUTTON_MINIMIZE:
+				if (window->minimized)
+					send_unminimize(window->surface);
+				else
+					send_minimize(window->surface);
+				break;
+			case FRAME_BUTTON_MAXIMIZE:
+				if (window->maximized)
+					send_unmaximize(window->surface);
+				else
+					send_maximize(window->surface);
+				break;
+			case FRAME_BUTTON_CLOSE:
+				send_close(window->surface);
+				break;
+			}
+			button->state = FRAME_BUTTON_DEFAULT;
+		}
+	}
+	if (repaint)
+		weston_surface_repaint(window);
+}
+
+static void
 weston_wm_handle_button(struct weston_wm *wm, xcb_generic_event_t *event)
 {
 	xcb_button_press_event_t *button = (xcb_button_press_event_t *) event;
@@ -1336,7 +1634,9 @@ weston_wm_handle_button(struct weston_wm *wm, xcb_generic_event_t *event)
 					      button->event_x,
 					      button->event_y,
 					      width, height, 0);
-
+		frame_button_button(window, 1);
+		if (window->button_hover)
+			return;
 		switch (location) {
 		case THEME_LOCATION_TITLEBAR:
 			shell_interface->move(window->shsurf, seat);
@@ -1355,7 +1655,26 @@ weston_wm_handle_button(struct weston_wm *wm, xcb_generic_event_t *event)
 		default:
 			break;
 		}
+	} else if (button->response_type == XCB_BUTTON_RELEASE &&
+		   button->detail == 1) {
+		frame_button_button(window, 0);
 	}
+}
+
+static void
+frame_button_motion(struct weston_wm_window *window, int x, int y)
+{
+	struct frame_button *button;
+	int button_hover = 0;
+
+	wl_list_for_each(button, &window->button_list, link) {
+		if (frame_button_motion_handler(button, x, y, NULL))
+			weston_surface_repaint(window);
+		if (button->state == FRAME_BUTTON_HOVER)
+			button_hover = 1;
+	}
+
+	window->button_hover = button_hover;
 }
 
 static void
@@ -1375,6 +1694,7 @@ weston_wm_handle_motion(struct weston_wm *wm, xcb_generic_event_t *event)
 					 window->maximized);
 
 	weston_wm_window_set_cursor(wm, window->frame_id, cursor);
+	frame_button_motion(window, motion->event_x, motion->event_y);
 }
 
 static void
@@ -1907,19 +2227,40 @@ send_unmaximize(struct weston_surface *surface)
 static void
 send_minimize(struct weston_surface *surface)
 {
-	/* TODO: Track minimize state */
+	struct weston_wm_window *window = get_wm_window(surface);
+	struct weston_wm *wm = window->wm;
+	struct weston_shell_interface *shell_interface =
+		&wm->server->compositor->shell_interface;
+
+	if (window->minimized)
+		return;
+
+	window->minimized = 1;
+	shell_interface->set_minimized(window->shsurf);
 }
 
 static void
 send_unminimize(struct weston_surface *surface)
 {
-	/* TODO: Track minimize state */
+	struct weston_wm_window *window = get_wm_window(surface);
+	struct weston_wm *wm = window->wm;
+	struct weston_shell_interface *shell_interface =
+		&wm->server->compositor->shell_interface;
+
+	if (!window->minimized)
+		return;
+
+	shell_interface->set_unminimized(window->shsurf);
+	window->minimized = 0;
 }
 
 static void
 send_close(struct weston_surface *surface)
 {
-	weston_log("TODO: xwayland client close\n");
+	struct weston_wm_window *window = get_wm_window(surface);
+
+	if (window)
+		xcb_destroy_window(window->wm->conn, window->id);
 }
 
 static const struct weston_shell_client shell_client = {

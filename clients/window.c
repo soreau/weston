@@ -3323,6 +3323,9 @@ handle_maximize(void *data, struct wl_shell_surface *shell_surface)
 {
 	struct window *window = data;
 
+	if (window->minimized)
+		return;
+
 	window_set_maximized(window, 1);
 }
 
@@ -3330,6 +3333,9 @@ static void
 handle_unmaximize(void *data, struct wl_shell_surface *shell_surface)
 {
 	struct window *window = data;
+
+	if (window->minimized)
+		return;
 
 	window_set_maximized(window, 0);
 }

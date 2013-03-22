@@ -7,7 +7,7 @@ m4_define([weston_version],
 AC_PREREQ([2.64])
 AC_INIT([weston],
         [weston_version],
-        [https://bugs.freedesktop.org/enter_bug.cgi?product=Wayland&component=weston&version=weston_version],
+        [https://github.com/soreau/weston/issues/new],
         [weston],
         [http://wayland.freedesktop.org/])
 

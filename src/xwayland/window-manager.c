@@ -1633,10 +1633,13 @@ weston_wm_handle_button(struct weston_wm *wm, xcb_generic_event_t *event)
 		location = theme_get_location(t,
 					      button->event_x,
 					      button->event_y,
-					      width, height, 0);
+					      width, height,
+					      window->maximized ?
+					      THEME_FRAME_MAXIMIZED : 0);
 		frame_button_button(window, 1);
 		if (window->button_hover)
 			return;
+
 		switch (location) {
 		case THEME_LOCATION_TITLEBAR:
 			shell_interface->move(window->shsurf, seat);

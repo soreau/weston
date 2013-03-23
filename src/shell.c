@@ -2528,6 +2528,11 @@ destroy_shell_surface(struct shell_surface *shsurf)
 	if (shsurf->surface_data)
 		surface_data_send_gone(shsurf->surface_data);
 
+	if (shsurf->resize) {
+		shell_grab_end(&shsurf->resize->base);
+		free(&shsurf->resize->base);
+	}
+
 	/* If this surface has a parent popup, grab it. */
 	if (shsurf->popup.grab.pointer) {
 		grab_parent_popup(shsurf);

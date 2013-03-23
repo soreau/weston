@@ -2466,8 +2466,10 @@ pointer_handle_motion(void *data, struct wl_pointer *pointer,
 		cursor = widget->motion_handler(input->focus_widget,
 						input, time, sx, sy,
 						widget->user_data);
-	else
+	else if (input->focus_widget)
 		cursor = input->focus_widget->default_cursor;
+	else
+		return;
 
 	input_set_pointer_image(input, cursor);
 }

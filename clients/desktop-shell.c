@@ -99,6 +99,7 @@ struct panel {
 	uint32_t surface_count;
 	struct rgba focused_item;
 	struct panel_clock *clock;
+	struct sound_volume *sound_volume;
 };
 
 struct background {
@@ -137,6 +138,13 @@ struct panel_launcher {
 	struct wl_list link;
 	struct wl_array envp;
 	struct wl_array argv;
+};
+
+
+struct sound_volume {
+	struct widget *widget;
+	struct panel *panel;
+	unsigned char volume;
 };
 
 struct panel_clock {
@@ -363,6 +371,123 @@ clock_func(struct task *task, uint32_t events)
 	widget_schedule_redraw(clock->widget);
 }
 
+void configure_sound(unsigned char vol)
+{
+	char volstr[5];
+	sprintf(volstr, "%3u%%", (100*vol)/256);
+
+	if (fork() == 0) {
+		execlp("pactl", "pactl", "set-sink-volume", "0", volstr, NULL);
+	}
+}
+
+static void
+sound_volume_redraw_handler(struct widget *widget, void *data)
+{
+	cairo_surface_t *surface;
+	struct sound_volume *sound_volume = data;
+	cairo_t *cr;
+	struct rectangle allocation;
+
+	double a[3];
+	a[1] = sound_volume->volume / 85.3 - 1.0;
+	a[0] = a[1] + 1;
+	a[2] = a[1] - 1;
+
+	a[0] = a[0] < 0 ? 0 : a[0] > 1 ? 1 : a[0];
+	a[1] = a[1] < 0 ? 0 : a[1] > 1 ? 1 : a[1];
+	a[2] = a[2] < 0 ? 0 : a[2] > 1 ? 1 : a[2];
+
+	widget_get_allocation(widget, &allocation);
+	if (allocation.width == 0)
+		return;
+
+	surface = window_get_surface(sound_volume->panel->window);
+	cr = cairo_create(surface);
+
+	double x = allocation.x + 0.5;
+	double y = allocation.y + 0.5;
+
+	cairo_move_to (cr, x + 9, y + 6);
+	cairo_line_to (cr, x + 9, y + 19);
+	cairo_line_to (cr, x + 7, y + 19);
+	cairo_line_to (cr, x + 5, y + 15);
+	cairo_line_to (cr, x + 2, y + 15);
+	cairo_line_to (cr, x + 2, y + 10);
+	cairo_line_to (cr, x + 5, y + 10);
+	cairo_line_to (cr, x + 7, y + 6);
+	cairo_close_path (cr);
+
+	cairo_set_line_width (cr, 1.0);
+	cairo_set_source_rgba (cr, 1, 1, 1, 1);
+	cairo_fill_preserve (cr);
+	cairo_set_source_rgba (cr, 0.2, 0.2, 0.2, 1);
+	cairo_stroke (cr);
+
+	cairo_move_to (cr, x + 11, y + 7);
+	cairo_curve_to (cr, x+14,y+12,x+14,y+12, x + 11, y + 18);
+	cairo_line_to (cr, x + 9, y + 18);
+	cairo_curve_to (cr, x+12,y+12,x+12,y+12, x + 9, y + 7);
+	cairo_close_path (cr);
+
+	cairo_set_line_width (cr, 1.0);
+	cairo_set_source_rgba (cr, 1 * a[0], 1 * a[0], 1 * a[0], 0.3 + 0.7 * a[0]);
+	cairo_fill_preserve (cr);
+	cairo_set_source_rgba (cr, 0.2, 0.2, 0.2, 1 * a[0]);
+	cairo_stroke (cr);
+
+	cairo_move_to (cr, x + 14, y + 5);
+	cairo_curve_to (cr, x+17,y+12,x+17,y+12, x + 14, y + 20);
+	cairo_line_to (cr, x + 12, y + 20);
+	cairo_curve_to (cr, x+15,y+12,x+15,y+12, x + 12, y + 5);
+	cairo_close_path (cr);
+
+	cairo_set_line_width (cr, 1.0);
+	cairo_set_source_rgba (cr, 1 * a[1], 1 * a[1], 1 * a[1], 0.3 + 0.7 * a[1]);
+	cairo_fill_preserve (cr);
+	cairo_set_source_rgba (cr, 0.2, 0.2, 0.2, 1 * a[1]);
+	cairo_stroke (cr);
+
+	cairo_move_to (cr, x + 17, y + 3);
+	cairo_curve_to (cr, x+20,y+12,x+20,y+12, x + 17, y + 22);
+	cairo_line_to (cr, x + 15, y + 22);
+	cairo_curve_to (cr, x+18,y+12,x+18,y+12, x + 15, y + 3);
+	cairo_close_path (cr);
+
+	cairo_set_line_width (cr, 1.0);
+	cairo_set_source_rgba (cr, 1 * a[2], 1 * a[2], 1 * a[2], 0.3 + 0.7 * a[2]);
+	cairo_fill_preserve (cr);
+	cairo_set_source_rgba (cr, 0.2, 0.2, 0.2, 1 * a[2]);
+	cairo_stroke (cr);
+
+	cairo_destroy(cr);
+}
+
+static void
+sound_volume_axis_handler(struct widget *widget,
+                                      struct input *input, uint32_t time,
+                                      uint32_t axis,
+                                      wl_fixed_t value,
+                                      void *data)
+{
+	struct sound_volume *sound_volume = data;
+	int new = sound_volume->volume;
+
+	switch (value) {
+	case 4294964736:
+		new+=8;
+		break;
+	case 2560:
+		new-=8;
+		break;
+	}
+
+	sound_volume->volume = new = new > 0 ? (new < 256 ? new : 255) : 0;
+
+	configure_sound(new);
+	widget_schedule_redraw(widget);
+}
+
 static void
 panel_clock_redraw_handler(struct widget *widget, void *data)
 {
@@ -421,6 +546,14 @@ clock_timer_reset(struct panel_clock *clock)
 }
 
 static void
+panel_destroy_sound_volume(struct sound_volume *sound_volume)
+{
+	widget_destroy(sound_volume->widget);
+
+	free(sound_volume);
+}
+
+static void
 panel_destroy_clock(struct panel_clock *clock)
 {
 	widget_destroy(clock->widget);
@@ -428,6 +561,22 @@ panel_destroy_clock(struct panel_clock *clock)
 	close(clock->clock_fd);
 
 	free(clock);
+}
+
+
+static void
+panel_add_sound_volume(struct panel *panel)
+{
+	struct sound_volume *sound_volume;
+
+	sound_volume = malloc(sizeof *sound_volume);
+	memset(sound_volume, 0, sizeof *sound_volume);
+	sound_volume->panel = panel;
+	panel->sound_volume = sound_volume;
+
+	sound_volume->widget = widget_add_widget(panel->widget, sound_volume);
+	widget_set_redraw_handler(sound_volume->widget, sound_volume_redraw_handler);
+	widget_set_axis_handler(sound_volume->widget, sound_volume_axis_handler);
 }
 
 static void
@@ -503,7 +652,7 @@ panel_resize_handler(struct widget *widget,
 	struct rectangle launcher_rect;
 	struct rectangle clock_rect;
 	struct panel *panel = data;
-	int x, y, w, h;
+	int x, y, w, h, ws, hs;
 
 	x = 10;
 	y = 16;
@@ -520,8 +669,15 @@ panel_resize_handler(struct widget *widget,
 
 	launcher_rect.width = x - launcher_rect.x;
 
+	ws=24;
+	hs=24;
+
 	w=150;
 	h=20;
+
+	if (panel->sound_volume)
+		widget_set_allocation(panel->sound_volume->widget,
+				      width - w - ws, 4, ws, hs);
 
 	if (panel->clock)
 		widget_set_allocation(panel->clock->widget,
@@ -531,7 +687,7 @@ panel_resize_handler(struct widget *widget,
 
 	panel->window_list_rect.x = launcher_rect.x + launcher_rect.width;
 	panel->window_list_rect.y = 2;
-	panel->window_list_rect.width = width -
+	panel->window_list_rect.width = width - ws -
 					panel->window_list_rect.x -
 					(clock_rect.width + 20);
 	panel->window_list_rect.height = 28;
@@ -623,6 +779,7 @@ panel_create(struct display *display)
 	panel->surface_count = 0;
 	panel_set_list_item_focus_color(panel);
 	panel_add_clock(panel);
+	panel_add_sound_volume(panel);
 
 	return panel;
 }

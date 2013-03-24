@@ -1114,6 +1114,9 @@ frame_button_motion_handler(struct frame_button *button,
 	    x < (widget->allocation.x + widget->allocation.width) &&
 	    y > widget->allocation.y &&
 	    y < (widget->allocation.y + widget->allocation.height)) {
+		if (!(button->state == FRAME_BUTTON_ACTIVE))
+			/* don't change button state if we move the mouse cursor
+			 * while the frame button is pressed down */
 		button->state = FRAME_BUTTON_HOVER;
 	} else {
 		button->state = FRAME_BUTTON_DEFAULT;

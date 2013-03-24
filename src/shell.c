@@ -1185,7 +1185,7 @@ send_maximize(struct weston_surface *surface)
 {
 	struct shell_surface *shsurf = get_shell_surface(surface);
 
-	if (!shsurf || shsurf->minimized)
+	if (!shsurf)
 		return;
 
 	wl_shell_surface_send_maximize(&shsurf->resource);
@@ -1196,7 +1196,7 @@ send_unmaximize(struct weston_surface *surface)
 {
 	struct shell_surface *shsurf = get_shell_surface(surface);
 
-	if (!shsurf || shsurf->minimized)
+	if (!shsurf)
 		return;
 
 	wl_shell_surface_send_unmaximize(&shsurf->resource);
@@ -2069,9 +2069,6 @@ set_maximized(struct shell_surface *shsurf,
 	struct desktop_shell *shell = NULL;
 	uint32_t edges = 0, panel_height = 0;
 
-	if (shsurf->minimized)
-		return;
-
 	/* get the default output, if the client set it as NULL
 	   check whether the ouput is available */
 	if (output)
@@ -2098,9 +2095,6 @@ set_maximized_custom(struct shell_surface *shsurf,
 {
 	struct weston_surface *es = shsurf->surface;
 	uint32_t edges = 0;
-
-	if (shsurf->minimized)
-		return;
 
 	/* get the default output, if the client set it as NULL
 	   check whether the ouput is available */

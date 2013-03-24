@@ -1366,8 +1366,6 @@ list_item_menu_handle_button(struct list_item *item, int index)
 		}
 		break;
 	case 1: /* (Un)Maximize */
-		if (surface->minimized)
-			break;
 		if (surface->maximized) {
 			surface_data_unmaximize(surface->surface_data);
 			surface->maximized = 0;
@@ -1689,7 +1687,7 @@ surface_data_set_maximized_state(void *data,
 
 	desktop = surface->desktop;
 
-	surface->maximized = surface->minimized ? 0 : maximized;
+	surface->maximized = maximized;
 
 	desktop_update_list_items(desktop, surface);
 }

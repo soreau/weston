@@ -371,7 +371,7 @@ clock_func(struct task *task, uint32_t events)
 	widget_schedule_redraw(clock->widget);
 }
 
-void configure_sound(unsigned char vol)
+static void configure_sound(unsigned char vol)
 {
 	char volstr[5];
 	sprintf(volstr, "%3u%%", (100*vol)/256);
@@ -543,14 +543,6 @@ clock_timer_reset(struct panel_clock *clock)
 	}
 
 	return 0;
-}
-
-static void
-panel_destroy_sound_volume(struct sound_volume *sound_volume)
-{
-	widget_destroy(sound_volume->widget);
-
-	free(sound_volume);
 }
 
 static void

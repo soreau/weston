@@ -1161,8 +1161,25 @@ pointer_set_cursor(struct wl_client *client, struct wl_resource *resource,
 								weston_surface_buffer_height(surface));
 }
 
+static void
+pointer_warp(struct wl_client *client, struct wl_resource *resource,
+		   int32_t sx, int32_t sy)
+{
+	struct weston_pointer *pointer = wl_resource_get_user_data(resource);
+	struct weston_keyboard *keyboard = pointer->seat->keyboard;
+	wl_fixed_t x, y;
+
+	if (pointer->focus_resource) {
+		weston_surface_to_global_fixed(pointer->focus,
+						 wl_fixed_from_int(sx),
+						 wl_fixed_from_int(sy), &x, &y);
+		move_pointer(pointer->seat, x, y);
+	}
+}
+
 static const struct wl_pointer_interface pointer_interface = {
-	pointer_set_cursor
+	pointer_set_cursor,
+	pointer_warp
 };
 
 static void

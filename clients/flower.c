@@ -113,6 +113,46 @@ resize_handler(struct widget *widget,
 }
 
 static void
+compute_input_region(cairo_surface_t *surface, struct widget *widget)
+{
+	unsigned char *data;
+	cairo_format_t format;
+	int width, height, i, y;
+	const struct rectangle *rect;
+	struct rectangle r;
+
+	format = cairo_image_surface_get_format(surface);
+
+	if (format != CAIRO_FORMAT_ARGB32)
+		return;
+
+	cairo_surface_flush(surface);
+	data = cairo_image_surface_get_data(surface);
+	width = cairo_image_surface_get_width(surface);
+	height = cairo_image_surface_get_height(surface);
+	rect = &r;
+
+	for (i = 0, y = 0; i <= width * height; i++) {
+		if (*(data + i * 4) != 0) {
+			r.x = i - y * width;
+			r.y = y;
+			for (i++; ; i++) {
+				if (*(data + i * 4) == 0 ||
+				    i - y * width >= width) {
+					r.width = i - y * width - r.x;
+					r.height = 1;
+					widget_input_region_add(widget, rect);
+					break;
+				}
+			}
+		}
+
+		if (i - y * width >= width)
+			y++;
+	}
+}
+
+static void
 redraw_handler(struct widget *widget, void *data)
 {
 	struct flower *flower = data;
@@ -126,6 +166,7 @@ redraw_handler(struct widget *widget, void *data)
 	}
 
 	draw_stuff(surface, flower->width, flower->height);
+	compute_input_region(surface, flower->widget);
 	cairo_surface_destroy(surface);
 }
 

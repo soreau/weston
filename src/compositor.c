@@ -4013,16 +4013,13 @@ load_plugins(struct weston_compositor *ec, const char *plugins,
 		*(buffer + (strlen(buffer) - 3)) = '\0';
 
 		if (plugin_interface) {
-			printf("Loaded %s\n", buffer);
 			if (!plugin_interface->init) {
-				printf("Failed to initialize %s plugin\n", buffer);
+				weston_log("Failed to initialize %s plugin\n", buffer);
 				goto next;
 			}
 			if (!plugin_interface->init(ec)) {
-				if(add_plugin(&ec->plugin_list, plugin_interface, buffer))
-					printf("Failed to add %s plugin\n", buffer);
-				else
-					printf("Successfully added %s\n", buffer);
+				if(!add_plugin(&ec->plugin_list, plugin_interface, buffer))
+					weston_log("Loaded %s plugin\n", buffer);
 			}
 		}
 next:

@@ -30,8 +30,8 @@ struct weston_fixed_point {
 	wl_fixed_t x, y;
 };
 
-struct {
-	struct weston_compositor *compositor;
+struct ezoom_output {
+	struct weston_output *output;
 	int active;
 	float increment;
 	float level;
@@ -45,6 +45,12 @@ struct {
 	struct weston_fixed_point to;
 	struct weston_fixed_point current;
 	struct wl_listener motion_listener;
+	struct wl_list link;
+};
+
+struct {
+	struct weston_compositor *compositor;
+	struct wl_list output_list;
 } ezoom;
 
 static struct weston_seat *
@@ -54,27 +60,60 @@ weston_zoom_pick_seat(struct weston_compositor *compositor)
 			    struct weston_seat, link);
 }
 
+static int
+output_contains_point(struct weston_output *output)
+{
+	struct weston_seat *seat;
+
+	seat = weston_zoom_pick_seat(output->compositor);
+
+	if (pixman_region32_contains_point(&output->region,
+					   wl_fixed_to_int(seat->pointer->x),
+					   wl_fixed_to_int(seat->pointer->y),
+					   NULL))
+		return 1;
+	return 0;
+}
+
+static struct ezoom_output *
+get_output(struct weston_output *output)
+{
+	struct ezoom_output *ezoom_output;
+
+	wl_list_for_each(ezoom_output, &ezoom.output_list, link) {
+		if ((ezoom_output->output == output))
+			return ezoom_output;
+	}
+
+	return NULL;
+}
+
 static void
 weston_zoom_frame_z(struct weston_animation *animation,
 		struct weston_output *output, uint32_t msecs)
 {
+	struct ezoom_output *ezoom_output;
+
+	if (!(ezoom_output = get_output(output)))
+		return;
+
 	if (animation->frame_counter <= 1)
-		ezoom.spring_z.timestamp = msecs;
+		ezoom_output->spring_z.timestamp = msecs;
 
-	weston_spring_update(&ezoom.spring_z, msecs);
+	weston_spring_update(&ezoom_output->spring_z, msecs);
 
-	if (ezoom.spring_z.current > ezoom.max_level)
-		ezoom.spring_z.current = ezoom.max_level;
-	else if (ezoom.spring_z.current < 0.0)
-		ezoom.spring_z.current = 0.0;
+	if (ezoom_output->spring_z.current > ezoom_output->max_level)
+		ezoom_output->spring_z.current = ezoom_output->max_level;
+	else if (ezoom_output->spring_z.current < 0.0)
+		ezoom_output->spring_z.current = 0.0;
 
-	if (weston_spring_done(&ezoom.spring_z)) {
-		if (ezoom.active && ezoom.level <= 0.0) {
-			ezoom.active = output->compositor->filter_linear = 0;
+	if (weston_spring_done(&ezoom_output->spring_z)) {
+		if (ezoom_output->active && ezoom_output->level <= 0.0) {
+			ezoom_output->active = output->compositor->filter_linear = 0;
 			output->disable_planes--;
-			wl_list_remove(&ezoom.motion_listener.link);
+			wl_list_remove(&ezoom_output->motion_listener.link);
 		}
-		ezoom.spring_z.current = ezoom.level;
+		ezoom_output->spring_z.current = ezoom_output->level;
 		wl_list_remove(&animation->link);
 		wl_list_init(&animation->link);
 	}
@@ -89,24 +128,28 @@ weston_zoom_frame_xy(struct weston_animation *animation,
 {
 	struct weston_seat *seat = weston_zoom_pick_seat(output->compositor);
 	wl_fixed_t x, y;
+	struct ezoom_output *ezoom_output;
+
+	if (!(ezoom_output = get_output(output)))
+		return;
 
 	if (animation->frame_counter <= 1)
-		ezoom.spring_xy.timestamp = msecs;
+		ezoom_output->spring_xy.timestamp = msecs;
 
-	weston_spring_update(&ezoom.spring_xy, msecs);
+	weston_spring_update(&ezoom_output->spring_xy, msecs);
 
-	x = ezoom.from.x - ((ezoom.from.x - ezoom.to.x) *
-						ezoom.spring_xy.current);
-	y = ezoom.from.y - ((ezoom.from.y - ezoom.to.y) *
-						ezoom.spring_xy.current);
+	x = ezoom_output->from.x - ((ezoom_output->from.x - ezoom_output->to.x) *
+						ezoom_output->spring_xy.current);
+	y = ezoom_output->from.y - ((ezoom_output->from.y - ezoom_output->to.y) *
+						ezoom_output->spring_xy.current);
 
-	ezoom.current.x = x;
-	ezoom.current.y = y;
+	ezoom_output->current.x = x;
+	ezoom_output->current.y = y;
 
-	if (weston_spring_done(&ezoom.spring_xy)) {
-		ezoom.spring_xy.current = ezoom.spring_xy.target;
-		ezoom.current.x = seat->pointer->x;
-		ezoom.current.y = seat->pointer->y;
+	if (weston_spring_done(&ezoom_output->spring_xy)) {
+		ezoom_output->spring_xy.current = ezoom_output->spring_xy.target;
+		ezoom_output->current.x = seat->pointer->x;
+		ezoom_output->current.y = seat->pointer->y;
 		wl_list_remove(&animation->link);
 		wl_list_init(&animation->link);
 	}
@@ -119,7 +162,12 @@ static void
 zoom_area_center_from_pointer(struct weston_output *output,
 				wl_fixed_t *x, wl_fixed_t *y)
 {
-	float level = ezoom.spring_z.current;
+	struct ezoom_output *ezoom_output;
+
+	if (!(ezoom_output = get_output(output)))
+		return;
+
+	float level = ezoom_output->spring_z.current;
 	wl_fixed_t offset_x = wl_fixed_from_int(output->x);
 	wl_fixed_t offset_y = wl_fixed_from_int(output->y);
 	wl_fixed_t w = wl_fixed_from_int(output->width);
@@ -132,29 +180,35 @@ zoom_area_center_from_pointer(struct weston_output *output,
 static void
 weston_output_update_zoom_transform(struct weston_output *output)
 {
-	float global_x, global_y;
-	wl_fixed_t x = ezoom.current.x;
-	wl_fixed_t y = ezoom.current.y;
+	struct ezoom_output *ezoom_output;
 	float trans_min, trans_max;
+	float global_x, global_y;
 	float ratio, level;
+	wl_fixed_t x, y;
 
-	level = ezoom.spring_z.current;
+	if (!(ezoom_output = get_output(output)))
+		return;
+
+	x = ezoom_output->current.x;
+	y = ezoom_output->current.y;
+
+	level = ezoom_output->spring_z.current;
 	ratio = 1 / level;
 
-	if (!ezoom.active || level > ezoom.max_level ||
+	if (!ezoom_output->active || level > ezoom_output->max_level ||
 	    level == 0.0f)
 		return;
 
-	if (wl_list_empty(&ezoom.animation_xy.link))
+	if (wl_list_empty(&ezoom_output->animation_xy.link))
 		zoom_area_center_from_pointer(output, &x, &y);
 
 	global_x = wl_fixed_to_double(x);
 	global_y = wl_fixed_to_double(y);
 
-	ezoom.trans_x =
+	ezoom_output->trans_x =
 		((((global_x - output->x) / output->width) *
 		(level * 2)) - level) * ratio;
-	ezoom.trans_y =
+	ezoom_output->trans_y =
 		((((global_y - output->y) / output->height) *
 		(level * 2)) - level) * ratio;
 
@@ -162,25 +216,30 @@ weston_output_update_zoom_transform(struct weston_output *output)
 	trans_min = -trans_max;
 
 	/* Clip zoom area to output */
-	if (ezoom.trans_x > trans_max)
-		ezoom.trans_x = trans_max;
-	else if (ezoom.trans_x < trans_min)
-		ezoom.trans_x = trans_min;
-	if (ezoom.trans_y > trans_max)
-		ezoom.trans_y = trans_max;
-	else if (ezoom.trans_y < trans_min)
-		ezoom.trans_y = trans_min;
+	if (ezoom_output->trans_x > trans_max)
+		ezoom_output->trans_x = trans_max;
+	else if (ezoom_output->trans_x < trans_min)
+		ezoom_output->trans_x = trans_min;
+	if (ezoom_output->trans_y > trans_max)
+		ezoom_output->trans_y = trans_max;
+	else if (ezoom_output->trans_y < trans_min)
+		ezoom_output->trans_y = trans_min;
 }
 
 static void
-weston_zoom_transition(struct weston_output *output, wl_fixed_t x, wl_fixed_t y)
+weston_zoom_transition(struct weston_output *output)
 {
-	if (ezoom.level != ezoom.spring_z.current) {
-		ezoom.spring_z.target = ezoom.level;
-		if (wl_list_empty(&ezoom.animation_z.link)) {
-			ezoom.animation_z.frame_counter = 0;
+	struct ezoom_output *ezoom_output;
+
+	if (!(ezoom_output = get_output(output)))
+		return;
+
+	if (ezoom_output->level != ezoom_output->spring_z.current) {
+		ezoom_output->spring_z.target = ezoom_output->level;
+		if (wl_list_empty(&ezoom_output->animation_z.link)) {
+			ezoom_output->animation_z.frame_counter = 0;
 			wl_list_insert(output->animation_list.prev,
-				&ezoom.animation_z.link);
+				&ezoom_output->animation_z.link);
 		}
 	}
 
@@ -194,18 +253,23 @@ weston_output_update_zoom(struct weston_output *output)
 	struct weston_seat *seat = weston_zoom_pick_seat(output->compositor);
 	wl_fixed_t x = seat->pointer->x;
 	wl_fixed_t y = seat->pointer->y;
+	struct ezoom_output *ezoom_output;
+
+	if (!(ezoom_output = get_output(output)) ||
+	     !output_contains_point(output))
+		return;
 
 	zoom_area_center_from_pointer(output, &x, &y);
 
-	if (wl_list_empty(&ezoom.animation_xy.link)) {
-		ezoom.current.x = seat->pointer->x;
-		ezoom.current.y = seat->pointer->y;
+	if (wl_list_empty(&ezoom_output->animation_xy.link)) {
+		ezoom_output->current.x = seat->pointer->x;
+		ezoom_output->current.y = seat->pointer->y;
 	} else {
-		ezoom.to.x = x;
-		ezoom.to.y = y;
+		ezoom_output->to.x = x;
+		ezoom_output->to.y = y;
 	}
 
-	weston_zoom_transition(output, x, y);
+	weston_zoom_transition(output);
 	weston_output_update_zoom_transform(output);
 }
 
@@ -213,15 +277,19 @@ static void
 output_set_transform_coords(struct weston_output *output, wl_fixed_t *tx, wl_fixed_t *ty)
 {
 	float zoom_scale, zx, zy;
+	struct ezoom_output *ezoom_output;
 
-	if (ezoom.active) {
-		zoom_scale = ezoom.spring_z.current;
+	if (!(ezoom_output = get_output(output)))
+		return;
+
+	if (ezoom_output->active) {
+		zoom_scale = ezoom_output->spring_z.current;
 		zx = (wl_fixed_to_double(*tx) * (1.0f - zoom_scale) +
 		      output->width / 2.0f *
-		      (zoom_scale + ezoom.trans_x));
+		      (zoom_scale + ezoom_output->trans_x));
 		zy = (wl_fixed_to_double(*ty) * (1.0f - zoom_scale) +
 		      output->height / 2.0f *
-		      (zoom_scale + ezoom.trans_y));
+		      (zoom_scale + ezoom_output->trans_y));
 		*tx = wl_fixed_from_double(zx);
 		*ty = wl_fixed_from_double(zy);
 	}
@@ -233,12 +301,16 @@ static void
 output_update_matrix(struct weston_output *output)
 {
 	float magnification;
+	struct ezoom_output *ezoom_output;
 
-	if (ezoom.active) {
-		magnification = 1 / (1 - ezoom.spring_z.current);
+	if (!(ezoom_output = get_output(output)))
+		return;
+
+	if (ezoom_output->active) {
+		magnification = 1 / (1 - ezoom_output->spring_z.current);
 		weston_output_update_zoom(output);
-		weston_matrix_translate(&output->matrix, -ezoom.trans_x,
-					ezoom.trans_y, 0);
+		weston_matrix_translate(&output->matrix, -ezoom_output->trans_x,
+					ezoom_output->trans_y, 0);
 		weston_matrix_scale(&output->matrix, magnification,
 				    magnification, 1.0);
 	}
@@ -248,14 +320,18 @@ static void
 weston_output_activate_zoom(struct weston_output *output)
 {
 	struct weston_seat *seat = weston_zoom_pick_seat(output->compositor);
+	struct ezoom_output *ezoom_output;
 
-	if (ezoom.active)
+	if (!(ezoom_output = get_output(output)))
 		return;
 
-	ezoom.active = output->compositor->filter_linear = 1;
+	if (ezoom_output->active)
+		return;
+
+	ezoom_output->active = output->compositor->filter_linear = 1;
 	output->disable_planes++;
 	wl_signal_add(&seat->pointer->motion_signal,
-		      &ezoom.motion_listener);
+		      &ezoom_output->motion_listener);
 }
 
 static void
@@ -275,35 +351,35 @@ input_action(struct weston_seat *seat, uint32_t time, uint32_t key, uint32_t axi
 	struct weston_seat *ws = (struct weston_seat *) seat;
 	struct weston_compositor *compositor = ws->compositor;
 	struct weston_output *output;
+	struct ezoom_output *ezoom_output;
 	float increment;
 
 	wl_list_for_each(output, &compositor->output_list, link) {
-		if (pixman_region32_contains_point(&output->region,
-						   wl_fixed_to_double(seat->pointer->x),
-						   wl_fixed_to_double(seat->pointer->y),
-						   NULL)) {
+		if (!(ezoom_output = get_output(output)))
+			continue;
+		if (output_contains_point(output)) {
 			if (key == KEY_PAGEUP)
-				increment = ezoom.increment;
+				increment = ezoom_output->increment;
 			else if (key == KEY_PAGEDOWN)
-				increment = -ezoom.increment;
+				increment = -ezoom_output->increment;
 			else if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
 				/* For every pixel zoom 20th of a step */
-				increment = ezoom.increment *
+				increment = ezoom_output->increment *
 					    -wl_fixed_to_double(value) / 20.0;
 			else
 				increment = 0;
 
-			ezoom.level += increment;
+			ezoom_output->level += increment;
 
-			if (ezoom.level < 0.0)
-				ezoom.level = 0.0;
-			else if (ezoom.level > ezoom.max_level)
-				ezoom.level = ezoom.max_level;
-			else if (!ezoom.active) {
+			if (ezoom_output->level < 0.0)
+				ezoom_output->level = 0.0;
+			else if (ezoom_output->level > ezoom_output->max_level)
+				ezoom_output->level = ezoom_output->max_level;
+			else if (!ezoom_output->active) {
 				weston_output_activate_zoom(output);
 			}
 
-			ezoom.spring_z.target = ezoom.level;
+			ezoom_output->spring_z.target = ezoom_output->level;
 
 			weston_output_update_zoom(output);
 		}
@@ -313,27 +389,43 @@ input_action(struct weston_seat *seat, uint32_t time, uint32_t key, uint32_t axi
 static void
 fini(struct weston_plugin *plugin)
 {
+	struct ezoom_output *ezoom_output, *next;
+
+	wl_list_for_each_safe(ezoom_output, next, &ezoom.output_list, link)
+		free(ezoom_output);
 }
 
 static int
 init(struct weston_compositor *compositor)
 {
+	struct ezoom_output *ezoom_output;
+	struct weston_output *output;
+
 	ezoom.compositor = compositor;
-	ezoom.active = 0;
-	ezoom.increment = 0.07;
-	ezoom.max_level = 0.95;
-	ezoom.level = 0.0;
-	ezoom.trans_x = 0.0;
-	ezoom.trans_y = 0.0;
-	weston_spring_init(&ezoom.spring_z, 250.0, 0.0, 0.0);
-	ezoom.spring_z.friction = 1000;
-	ezoom.animation_z.frame = weston_zoom_frame_z;
-	wl_list_init(&ezoom.animation_z.link);
-	weston_spring_init(&ezoom.spring_xy, 250.0, 0.0, 0.0);
-	ezoom.spring_xy.friction = 1000;
-	ezoom.animation_xy.frame = weston_zoom_frame_xy;
-	wl_list_init(&ezoom.animation_xy.link);
-	ezoom.motion_listener.notify = motion;
+	wl_list_init(&ezoom.output_list);
+
+	wl_list_for_each(output, &compositor->output_list, link) {
+		ezoom_output = zalloc(sizeof *ezoom_output);
+
+		ezoom_output->output = output;
+		ezoom_output->active = 0;
+		ezoom_output->increment = 0.07;
+		ezoom_output->max_level = 0.95;
+		ezoom_output->level = 0.0;
+		ezoom_output->trans_x = 0.0;
+		ezoom_output->trans_y = 0.0;
+		weston_spring_init(&ezoom_output->spring_z, 250.0, 0.0, 0.0);
+		ezoom_output->spring_z.friction = 1000;
+		ezoom_output->animation_z.frame = weston_zoom_frame_z;
+		wl_list_init(&ezoom_output->animation_z.link);
+		weston_spring_init(&ezoom_output->spring_xy, 250.0, 0.0, 0.0);
+		ezoom_output->spring_xy.friction = 1000;
+		ezoom_output->animation_xy.frame = weston_zoom_frame_xy;
+		wl_list_init(&ezoom_output->animation_xy.link);
+		ezoom_output->motion_listener.notify = motion;
+
+		wl_list_insert(&ezoom.output_list, &ezoom_output->link);
+	}
 
 	return 0;
 }

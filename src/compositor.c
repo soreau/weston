@@ -4007,7 +4007,11 @@ load_plugins(struct weston_compositor *ec, const char *plugins,
 	while (*p) {
 		end = strchrnul(p, ',');
 		snprintf(buffer, sizeof buffer, "%.*s", (int) (end - p), p);
+		if (strncmp((end - 3), ".so", 3))
+			strcat(buffer, ".so");
 		plugin_interface = weston_load_module(buffer, "plugin_interface");
+		*(buffer + (strlen(buffer) - 3)) = '\0';
+
 		if (plugin_interface) {
 			printf("Loaded %s\n", buffer);
 			if (!plugin_interface->init) {

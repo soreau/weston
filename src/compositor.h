@@ -139,26 +139,6 @@ struct weston_spring {
 	uint32_t clip;
 };
 
-struct weston_fixed_point {
-	wl_fixed_t x, y;
-};
-
-struct weston_output_zoom {
-	int active;
-	float increment;
-	float level;
-	float max_level;
-	float trans_x, trans_y;
-	struct weston_animation animation_z;
-	struct weston_spring spring_z;
-	struct weston_animation animation_xy;
-	struct weston_spring spring_xy;
-	struct weston_fixed_point from;
-	struct weston_fixed_point to;
-	struct weston_fixed_point current;
-	struct wl_listener motion_listener;
-};
-
 /* bit compatible with drm definitions. */
 enum dpms_enum {
 	WESTON_DPMS_ON,
@@ -191,7 +171,6 @@ struct weston_output {
 	pixman_region32_t previous_damage;
 	int repaint_needed;
 	int repaint_scheduled;
-	struct weston_output_zoom zoom;
 	int dirty;
 	struct wl_signal frame_signal;
 	struct wl_signal destroy_signal;
@@ -607,6 +586,7 @@ struct weston_compositor {
 	struct wl_list layer_list;
 	struct wl_list view_list;
 	struct wl_list plane_list;
+	struct wl_list plugin_list;
 	struct wl_list key_binding_list;
 	struct wl_list modifier_binding_list;
 	struct wl_list button_binding_list;
@@ -643,6 +623,23 @@ struct weston_compositor {
 
 	/* Raw keyboard processing (no libxkbcommon initialization or handling) */
 	int use_xkbcommon;
+
+	int filter_linear;
+};
+
+struct weston_plugin *plugin;
+struct weston_plugin_interface {
+	int  (*init)(struct weston_compositor *compositor);
+	void (*fini)(struct weston_plugin *plugin);
+	void (*input_action)(struct weston_seat *seat, uint32_t time, uint32_t key, uint32_t axis, wl_fixed_t value);
+	void (*output_set_transform_coords)(struct weston_output *output, wl_fixed_t *x, wl_fixed_t *y);
+	void (*output_update_matrix)(struct weston_output *output);
+};
+
+struct weston_plugin {
+	char *name;
+	struct weston_plugin_interface *interface;
+	struct wl_list link;
 };
 
 struct weston_buffer {
@@ -1220,12 +1217,6 @@ weston_compositor_init(struct weston_compositor *ec, struct wl_display *display,
 		       int *argc, char *argv[], struct weston_config *config);
 void
 weston_compositor_shutdown(struct weston_compositor *ec);
-void
-weston_output_init_zoom(struct weston_output *output);
-void
-weston_output_update_zoom(struct weston_output *output);
-void
-weston_output_activate_zoom(struct weston_output *output);
 void
 weston_output_update_matrix(struct weston_output *output);
 void

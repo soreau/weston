@@ -4294,39 +4294,11 @@ do_zoom(struct weston_seat *seat, uint32_t time, uint32_t key, uint32_t axis,
 {
 	struct weston_seat *ws = (struct weston_seat *) seat;
 	struct weston_compositor *compositor = ws->compositor;
-	struct weston_output *output;
-	float increment;
+	struct weston_plugin *plugin;
 
-	wl_list_for_each(output, &compositor->output_list, link) {
-		if (pixman_region32_contains_point(&output->region,
-						   wl_fixed_to_double(seat->pointer->x),
-						   wl_fixed_to_double(seat->pointer->y),
-						   NULL)) {
-			if (key == KEY_PAGEUP)
-				increment = output->zoom.increment;
-			else if (key == KEY_PAGEDOWN)
-				increment = -output->zoom.increment;
-			else if (axis == WL_POINTER_AXIS_VERTICAL_SCROLL)
-				/* For every pixel zoom 20th of a step */
-				increment = output->zoom.increment *
-					    -wl_fixed_to_double(value) / 20.0;
-			else
-				increment = 0;
-
-			output->zoom.level += increment;
-
-			if (output->zoom.level < 0.0)
-				output->zoom.level = 0.0;
-			else if (output->zoom.level > output->zoom.max_level)
-				output->zoom.level = output->zoom.max_level;
-			else if (!output->zoom.active) {
-				weston_output_activate_zoom(output);
-			}
-
-			output->zoom.spring_z.target = output->zoom.level;
-
-			weston_output_update_zoom(output);
-		}
+	wl_list_for_each(plugin, &compositor->plugin_list, link) {
+		if (plugin->interface->input_action)
+			plugin->interface->input_action(seat, time, key, axis, value);
 	}
 }
 

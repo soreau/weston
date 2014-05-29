@@ -558,7 +558,7 @@ draw_view(struct weston_view *ev, struct weston_output *output,
 	use_shader(gr, gs->shader);
 	shader_uniforms(gs->shader, ev, output);
 
-	if (ev->transform.enabled || output->zoom.active ||
+	if (ev->transform.enabled || ec->filter_linear ||
 	    output->current_scale != ev->surface->buffer_viewport.buffer.scale)
 		filter = GL_LINEAR;
 	else

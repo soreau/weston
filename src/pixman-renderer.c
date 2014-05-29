@@ -403,11 +403,6 @@ draw_view(struct weston_view *ev, struct weston_output *output,
 	if (!pixman_region32_not_empty(&repaint))
 		goto out;
 
-	if (output->zoom.active) {
-		weston_log("pixman renderer does not support zoom\n");
-		goto out;
-	}
-
 	/* TODO: Implement repaint_region_complex() using pixman_composite_trapezoids() */
 	if (ev->alpha != 1.0 ||
 	    (ev->transform.enabled &&

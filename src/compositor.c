@@ -3187,7 +3187,7 @@ weston_output_compute_transform(struct weston_output *output)
 WL_EXPORT void
 weston_output_update_matrix(struct weston_output *output)
 {
-	float magnification;
+	struct weston_plugin *plugin;
 
 	weston_matrix_init(&output->matrix);
 	weston_matrix_translate(&output->matrix,
@@ -3198,13 +3198,9 @@ weston_output_update_matrix(struct weston_output *output)
 			    2.0 / output->width,
 			    -2.0 / output->height, 1);
 
-	if (output->zoom.active) {
-		magnification = 1 / (1 - output->zoom.spring_z.current);
-		weston_output_update_zoom(output);
-		weston_matrix_translate(&output->matrix, -output->zoom.trans_x,
-					output->zoom.trans_y, 0);
-		weston_matrix_scale(&output->matrix, magnification,
-				    magnification, 1.0);
+	wl_list_for_each(plugin, &output->compositor->plugin_list, link) {
+		if (plugin->interface->output_update_matrix)
+			plugin->interface->output_update_matrix(output);
 	}
 
 	weston_output_compute_transform(output);
@@ -3307,7 +3303,6 @@ weston_output_init(struct weston_output *output, struct weston_compositor *c,
 	output->original_scale = scale;
 
 	weston_output_transform_scale_init(output, transform, scale);
-	weston_output_init_zoom(output);
 
 	weston_output_init_geometry(output, x, y);
 	weston_output_damage(output);
@@ -3333,7 +3328,6 @@ weston_output_transform_coordinate(struct weston_output *output,
 {
 	wl_fixed_t tx, ty;
 	wl_fixed_t width, height;
-	float zoom_scale, zx, zy;
 
 	width = wl_fixed_from_int(output->width * output->current_scale - 1);
 	height = wl_fixed_from_int(output->height * output->current_scale - 1);
@@ -3377,16 +3371,9 @@ weston_output_transform_coordinate(struct weston_output *output,
 	tx /= output->current_scale;
 	ty /= output->current_scale;
 
-	if (output->zoom.active) {
-		zoom_scale = output->zoom.spring_z.current;
-		zx = (wl_fixed_to_double(tx) * (1.0f - zoom_scale) +
-		      output->width / 2.0f *
-		      (zoom_scale + output->zoom.trans_x));
-		zy = (wl_fixed_to_double(ty) * (1.0f - zoom_scale) +
-		      output->height / 2.0f *
-		      (zoom_scale + output->zoom.trans_y));
-		tx = wl_fixed_from_double(zx);
-		ty = wl_fixed_from_double(zy);
+	wl_list_for_each(plugin, &output->compositor->plugin_list, link) {
+		if (plugin->interface->output_set_transform_coords)
+			plugin->interface->output_set_transform_coords(output, &tx, &ty);
 	}
 
 	*x = tx + wl_fixed_from_int(output->x);
@@ -3685,6 +3672,7 @@ weston_compositor_init(struct weston_compositor *ec,
 	wl_list_init(&ec->layer_list);
 	wl_list_init(&ec->seat_list);
 	wl_list_init(&ec->output_list);
+	wl_list_init(&ec->plugin_list);
 	wl_list_init(&ec->key_binding_list);
 	wl_list_init(&ec->modifier_binding_list);
 	wl_list_init(&ec->button_binding_list);
@@ -3730,6 +3718,19 @@ weston_compositor_init(struct weston_compositor *ec,
 	return 0;
 }
 
+static void
+unload_plugins(struct weston_compositor *ec) {
+	struct weston_plugin *plugin, *next;
+
+	wl_list_for_each_safe(plugin, next, &ec->plugin_list, link) {
+		if (plugin->interface->fini)
+			plugin->interface->fini(plugin);
+		wl_list_remove(&plugin->link);
+		free(plugin->name);
+		free(plugin);
+	}
+}
+
 WL_EXPORT void
 weston_compositor_shutdown(struct weston_compositor *ec)
 {
@@ -3742,6 +3743,8 @@ weston_compositor_shutdown(struct weston_compositor *ec)
 	/* Destroy all outputs associated with this compositor */
 	wl_list_for_each_safe(output, next, &ec->output_list, link)
 		output->destroy(output);
+
+	unload_plugins(ec);
 
 	if (ec->renderer)
 		ec->renderer->destroy(ec);
@@ -3980,6 +3983,62 @@ load_modules(struct weston_compositor *ec, const char *modules,
 	return 0;
 }
 
+static int
+add_plugin(struct wl_list *list, struct weston_plugin_interface *interface, char *name)
+{
+	struct weston_plugin *plugin;
+
+	plugin = zalloc(sizeof *plugin);
+
+	if (!plugin)
+		return -1;
+
+	plugin->name = strdup(name);
+	plugin->interface = interface;
+
+	wl_list_insert(list, &plugin->link);
+
+	return 0;
+}
+
+static int
+load_plugins(struct weston_compositor *ec, const char *plugins,
+	     int *argc, char *argv[])
+{
+	const char *p, *end;
+	char buffer[32];
+	struct weston_plugin_interface *plugin_interface = NULL;
+
+	if (plugins == NULL)
+		return 0;
+
+	p = plugins;
+	while (*p) {
+		end = strchrnul(p, ',');
+		snprintf(buffer, sizeof buffer, "%.*s", (int) (end - p), p);
+		plugin_interface = weston_load_module(buffer, "plugin_interface");
+		if (plugin_interface) {
+			printf("Loaded %s\n", buffer);
+			if (!plugin_interface->init) {
+				printf("Failed to initialize %s plugin\n", buffer);
+				goto next;
+			}
+			if (!plugin_interface->init(ec)) {
+				if(add_plugin(&ec->plugin_list, plugin_interface, buffer))
+					printf("Failed to add %s plugin\n", buffer);
+				else
+					printf("Successfully added %s\n", buffer);
+			}
+		}
+next:
+		p = end;
+		while (*p == ',' || *p == ' ')
+			p++;
+	}
+
+	return 0;
+}
+
 static const char xdg_error_message[] =
 	"fatal: environment variable XDG_RUNTIME_DIR is not set.\n";
 
@@ -4146,7 +4205,7 @@ int main(int argc, char *argv[])
 	char *option_backend = NULL;
 	char *shell = NULL;
 	char *option_shell = NULL;
-	char *modules, *option_modules = NULL;
+	char *modules, *option_modules = NULL, *plugins, *option_plugins = NULL;
 	char *log = NULL;
 	char *server_socket = NULL, *end;
 	int32_t idle_time = 300;
@@ -4165,6 +4224,7 @@ int main(int argc, char *argv[])
 		{ WESTON_OPTION_STRING, "socket", 'S', &socket_name },
 		{ WESTON_OPTION_INTEGER, "idle-time", 'i', &idle_time },
 		{ WESTON_OPTION_STRING, "modules", 0, &option_modules },
+		{ WESTON_OPTION_STRING, "plugins", 0, &option_plugins },
 		{ WESTON_OPTION_STRING, "log", 0, &log },
 		{ WESTON_OPTION_BOOLEAN, "help", 'h', &help },
 		{ WESTON_OPTION_BOOLEAN, "version", 0, &version },
@@ -4272,6 +4332,13 @@ int main(int argc, char *argv[])
 
 	if (load_modules(ec, option_modules, &argc, argv) < 0)
 		goto out;
+
+	/* Load plugins specified in config file */
+	weston_config_section_get_string(section, "plugins", &plugins, "");
+	load_plugins(ec, plugins, &argc, argv);
+	free(plugins);
+	/* Load plugins specified on command line */
+	load_plugins(ec, option_plugins, &argc, argv);
 
 	for (i = 1; i < argc; i++)
 		weston_log("fatal: unhandled option: %s\n", argv[i]);

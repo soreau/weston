@@ -627,16 +627,15 @@ struct weston_compositor {
 	int filter_linear;
 };
 
+#define WESTON_PLUGIN_CALL_SINGLE(c, p, f, ...) ({			\
+	if (p->interface->f)						\
+		p->interface->f(__VA_ARGS__);				\
+})
 #define WESTON_PLUGIN_CALL(c, f, ...) ({				\
 	struct weston_plugin *p;					\
 									\
 	wl_list_for_each(p, &(c)->plugin_list, link)			\
-		if (p->interface->f)					\
-			p->interface->f(__VA_ARGS__);			\
-})
-#define WESTON_PLUGIN_CALL_SINGLE(c, p, f, ...) ({			\
-	if (p->interface->f)						\
-		p->interface->f(__VA_ARGS__);				\
+		WESTON_PLUGIN_CALL_SINGLE(c, p, f, __VA_ARGS__);	\
 })
 
 struct weston_plugin;

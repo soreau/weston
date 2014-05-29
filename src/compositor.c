@@ -3187,8 +3187,6 @@ weston_output_compute_transform(struct weston_output *output)
 WL_EXPORT void
 weston_output_update_matrix(struct weston_output *output)
 {
-	struct weston_plugin *plugin;
-
 	weston_matrix_init(&output->matrix);
 	weston_matrix_translate(&output->matrix,
 				-(output->x + output->width / 2.0),
@@ -3198,10 +3196,7 @@ weston_output_update_matrix(struct weston_output *output)
 			    2.0 / output->width,
 			    -2.0 / output->height, 1);
 
-	wl_list_for_each(plugin, &output->compositor->plugin_list, link) {
-		if (plugin->interface->output_update_matrix)
-			plugin->interface->output_update_matrix(output);
-	}
+	WESTON_PLUGIN_CALL(output->compositor, output_update_matrix, output);
 
 	weston_output_compute_transform(output);
 
@@ -3371,10 +3366,7 @@ weston_output_transform_coordinate(struct weston_output *output,
 	tx /= output->current_scale;
 	ty /= output->current_scale;
 
-	wl_list_for_each(plugin, &output->compositor->plugin_list, link) {
-		if (plugin->interface->output_set_transform_coords)
-			plugin->interface->output_set_transform_coords(output, &tx, &ty);
-	}
+	WESTON_PLUGIN_CALL(output->compositor, output_set_transform_coords, output, &tx, &ty);
 
 	*x = tx + wl_fixed_from_int(output->x);
 	*y = ty + wl_fixed_from_int(output->y);
@@ -3723,8 +3715,7 @@ unload_plugins(struct weston_compositor *ec) {
 	struct weston_plugin *plugin, *next;
 
 	wl_list_for_each_safe(plugin, next, &ec->plugin_list, link) {
-		if (plugin->interface->fini)
-			plugin->interface->fini(plugin);
+		WESTON_PLUGIN_CALL_SINGLE(ec, plugin, fini, plugin);
 		wl_list_remove(&plugin->link);
 		free(plugin->name);
 		free(plugin);

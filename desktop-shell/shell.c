@@ -4294,12 +4294,8 @@ do_zoom(struct weston_seat *seat, uint32_t time, uint32_t key, uint32_t axis,
 {
 	struct weston_seat *ws = (struct weston_seat *) seat;
 	struct weston_compositor *compositor = ws->compositor;
-	struct weston_plugin *plugin;
 
-	wl_list_for_each(plugin, &compositor->plugin_list, link) {
-		if (plugin->interface->input_action)
-			plugin->interface->input_action(seat, time, key, axis, value);
-	}
+	WESTON_PLUGIN_CALL(compositor, input_action, seat, time, key, axis, value);
 }
 
 static void

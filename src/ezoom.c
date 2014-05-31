@@ -81,7 +81,7 @@ get_output(struct weston_output *output)
 	struct ezoom_output *ezoom_output;
 
 	wl_list_for_each(ezoom_output, &ezoom.output_list, link) {
-		if ((ezoom_output->output == output))
+		if (ezoom_output->output == output)
 			return ezoom_output;
 	}
 
@@ -387,7 +387,7 @@ input_action(struct weston_seat *seat, uint32_t time, uint32_t key, uint32_t axi
 }
 
 static void
-fini(struct weston_plugin *plugin)
+fini(struct weston_compositor *compositor)
 {
 	struct ezoom_output *ezoom_output, *next;
 

@@ -1368,6 +1368,7 @@ weston_view_destroy(struct weston_view *view)
 	if (weston_view_is_mapped(view)) {
 		weston_view_unmap(view);
 		weston_compositor_build_view_list(view->surface->compositor);
+		WESTON_PLUGIN_CALL(view->surface->compositor, view_fini, view);
 	}
 
 	wl_list_remove(&view->link);
@@ -1800,11 +1801,11 @@ weston_output_repaint(struct weston_output *output, uint32_t msecs)
 	if (output->dirty)
 		weston_output_update_matrix(output);
 
+	output->repaint_needed = 0;
+
 	r = output->repaint(output, &output_damage);
 
 	pixman_region32_fini(&output_damage);
-
-	output->repaint_needed = 0;
 
 	weston_compositor_repick(ec);
 	wl_event_loop_dispatch(ec->input_loop, 0);
@@ -3715,7 +3716,7 @@ unload_plugins(struct weston_compositor *ec) {
 	struct weston_plugin *plugin, *next;
 
 	wl_list_for_each_safe(plugin, next, &ec->plugin_list, link) {
-		WESTON_PLUGIN_CALL_SINGLE(ec, plugin, fini, plugin);
+		WESTON_PLUGIN_CALL_SINGLE(ec, plugin, fini, ec);
 		wl_list_remove(&plugin->link);
 		free(plugin->name);
 		free(plugin);

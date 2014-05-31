@@ -641,10 +641,20 @@ struct weston_compositor {
 struct weston_plugin;
 struct weston_plugin_interface {
 	int  (*init)(struct weston_compositor *compositor);
-	void (*fini)(struct weston_plugin *plugin);
+	void (*fini)(struct weston_compositor *compositor);
 	void (*input_action)(struct weston_seat *seat, uint32_t time, uint32_t key, uint32_t axis, wl_fixed_t value);
 	void (*output_set_transform_coords)(struct weston_output *output, wl_fixed_t *x, wl_fixed_t *y);
 	void (*output_update_matrix)(struct weston_output *output);
+	void (*view_init)(struct weston_view *view);
+	void (*view_fini)(struct weston_view *view);
+	void (*prepare_paint)(struct weston_view *view, int msSinceLastPaint, int *needs_paint);
+	void (*add_geometry)(struct weston_view *view);
+	void (*paint_view)(struct weston_view *view);
+	void (*done_paint)(struct weston_view *view);
+	void (*resize_notify)(struct weston_view *view);
+	void (*move_notify)(struct weston_view *view, int dx, int dy);
+	void (*grab_notify)(struct weston_view *view, int x, int y);
+	void (*ungrab_notify)(struct weston_view *view);
 };
 
 struct weston_plugin {

@@ -645,22 +645,16 @@ endif
 
 
 module_LTLIBRARIES += ezoom.la
-
-ezoom_la_CPPFLAGS =			\
-	-I$(top_builddir)/protocol		\
-	-I$(top_srcdir)/shared			\
-	-I$(top_srcdir)/src			\
-	-I$(top_builddir)/src			\
-	-I$(top_builddir)/ezoom		\
-	-DDATADIR='"$(datadir)"'		\
-	-DMODULEDIR='"$(moduledir)"'		\
-	-DLIBEXECDIR='"$(libexecdir)"'		\
-	-DIN_WESTON
-
 ezoom_la_LDFLAGS = -module -avoid-version
 ezoom_la_LIBADD = $(COMPOSITOR_LIBS) libshared.la
 ezoom_la_CFLAGS = $(GCC_CFLAGS) $(COMPOSITOR_CFLAGS)
 ezoom_la_SOURCES = src/ezoom.c
+
+module_LTLIBRARIES += wobbly.la
+wobbly_la_LDFLAGS = -module -avoid-version
+wobbly_la_LIBADD = $(COMPOSITOR_LIBS) libshared.la
+wobbly_la_CFLAGS = $(GCC_CFLAGS) $(COMPOSITOR_CFLAGS) $(EGL_LIBS)
+wobbly_la_SOURCES = src/wobbly.c
 
 if ENABLE_DESKTOP_SHELL
 

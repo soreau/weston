@@ -1584,6 +1584,11 @@ move_grab_motion(struct weston_pointer_grab *grab, uint32_t time,
 
 	weston_view_set_position(shsurf->view, cx, cy);
 
+	WESTON_PLUGIN_CALL(shsurf->surface->compositor, move_notify,
+				shsurf->view,
+				wl_fixed_to_int(x),
+				wl_fixed_to_int(y));
+
 	weston_compositor_schedule_repaint(shsurf->surface->compositor);
 }
 
@@ -1598,6 +1603,8 @@ move_grab_button(struct weston_pointer_grab *grab,
 
 	if (pointer->button_count == 0 &&
 	    state == WL_POINTER_BUTTON_STATE_RELEASED) {
+		WESTON_PLUGIN_CALL(shell_grab->shsurf->surface->compositor,
+				ungrab_notify, shell_grab->shsurf->view);
 		shell_grab_end(shell_grab);
 		free(grab);
 	}
@@ -1609,6 +1616,8 @@ move_grab_cancel(struct weston_pointer_grab *grab)
 	struct shell_grab *shell_grab =
 		container_of(grab, struct shell_grab, grab);
 
+	WESTON_PLUGIN_CALL(shell_grab->shsurf->surface->compositor,
+			ungrab_notify, shell_grab->shsurf->view);
 	shell_grab_end(shell_grab);
 	free(grab);
 }
@@ -1645,6 +1654,11 @@ surface_move(struct shell_surface *shsurf, struct weston_seat *seat,
 
 	shell_grab_start(&move->base, &move_grab_interface, shsurf,
 			 seat->pointer, DESKTOP_SHELL_CURSOR_MOVE);
+
+	WESTON_PLUGIN_CALL(seat->compositor, grab_notify,
+				shsurf->view,
+				wl_fixed_to_int(seat->pointer->grab_x),
+				wl_fixed_to_int(seat->pointer->grab_y));
 
 	return 0;
 }
@@ -4955,6 +4969,8 @@ weston_view_set_initial_position(struct weston_view *view,
 	y = target_output->y + dy;
 
 	weston_view_set_position(view, x, y);
+
+	WESTON_PLUGIN_CALL(compositor, view_init, view);
 }
 
 static void
@@ -5139,6 +5155,8 @@ shell_surface_configure(struct weston_surface *es, int32_t sx, int32_t sy)
 			  shsurf->view->geometry.x + to_x - from_x,
 			  shsurf->view->geometry.y + to_y - from_y);
 	}
+
+	WESTON_PLUGIN_CALL(es->compositor, resize_notify, shsurf->view);
 }
 
 static void launch_desktop_shell_process(void *data);

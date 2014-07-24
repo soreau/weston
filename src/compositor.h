@@ -627,10 +627,15 @@ struct weston_compositor {
 	int filter_linear;
 };
 
+/* WESTON_PLUGIN_CALL_SINGLE(compositor, weston_plugin, function, arguments to function)
+ * Call a function for a specific plugin */
 #define WESTON_PLUGIN_CALL_SINGLE(p, f, ...) ({				\
 	if (p->interface->f)						\
 		p->interface->f(__VA_ARGS__);				\
 })
+/* WESTON_PLUGIN_CALL(compositor, function, arguments to function)
+ * Calls function for each plugin in the list
+ * Functions are defined in weston_plugin_interface below */
 #define WESTON_PLUGIN_CALL(c, f, ...) ({				\
 	struct weston_plugin *p;					\
 									\

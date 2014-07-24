@@ -752,7 +752,6 @@ wobbly_move_notify(struct weston_view *view, int x, int y)
 		ww->model->anchorObject->position.y += dy;
 
 		ww->wobbly |= WobblyInitial;
-		ws->synced = 0;
 
 		if (wl_list_empty(&ws->transform.link))
 			wl_list_insert(&view->geometry.transformation_list, &ws->transform.link);
@@ -789,6 +788,7 @@ wobbly_grab_notify(struct weston_view *view, int x, int y)
 		ww->model->anchorObject->immobile = 1;
 
 		ww->grabbed = 1;
+		ws->synced = 0;
 
 		for (i = 0; i < ww->model->numSprings; i++)
 		{

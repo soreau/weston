@@ -3715,8 +3715,9 @@ static void
 unload_plugins(struct weston_compositor *ec) {
 	struct weston_plugin *plugin, *next;
 
+	WESTON_PLUGIN_CALL(ec, fini, ec);
+
 	wl_list_for_each_safe(plugin, next, &ec->plugin_list, link) {
-		WESTON_PLUGIN_CALL_SINGLE(ec, plugin, fini, ec);
 		wl_list_remove(&plugin->link);
 		free(plugin->name);
 		free(plugin);

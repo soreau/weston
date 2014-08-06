@@ -744,7 +744,9 @@ wobbly_paint_view(struct weston_view *view)
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof *v, v + 2);
 	glEnableVertexAttribArray(1);
 
-	glDrawElements(GL_TRIANGLES, 128 * 3, GL_UNSIGNED_SHORT, indices);
+	/* 2 (triangles per cell) * 3 (vertices per triangle) *
+	   8 (ws->x_cells) * 8 (ws->y_cells) = 384 */
+	glDrawElements(GL_TRIANGLES, 384, GL_UNSIGNED_SHORT, indices);
 
 	glDisableVertexAttribArray(1);
 	glDisableVertexAttribArray(0);

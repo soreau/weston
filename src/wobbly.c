@@ -90,6 +90,7 @@ typedef struct _WobblyWindow {
 	int		wobbly;
 	int		grabbed;
 	int		velocity;
+	int		iw, ih;
 	unsigned int	state;
 } WobblyWindow;
 
@@ -97,9 +98,9 @@ struct surface {
 	WobblyWindow *ww;
 	struct weston_surface *surface;
 	struct weston_transform transform;
-	float	x, y;
+	float	x, y, sx, sy;
+	float	last_x, last_y;
 	int	width, height;
-	int	last_x, last_y;
 	int	x_cells, y_cells;
 	int	synced;
 
@@ -563,9 +564,6 @@ wobbly_prepare_paint(struct weston_view *view, int msSinceLastPaint, int *needs_
 				modelCalcBounds(ww->model);
 				*needs_paint = 0;
 			} else {
-				ws->x = ww->model->topLeft.x;
-				ws->y = ww->model->topLeft.y;
-				weston_view_set_position(view, ws->x, ws->y);
 				wl_list_remove(&ws->transform.link);
 				wl_list_init(&ws->transform.link);
 				ws->synced = 1;
@@ -587,9 +585,9 @@ wobbly_add_geometry(struct weston_view *view)
 	struct surface *ws;
 	WobblyWindow *ww;
 	float	width, height;
-	float	deformedX, deformedY;
-	int	x, y, iw, ih;
 	float	cell_w, cell_h;
+	float	deformedX, deformedY;
+	int	x, y;
 	GLfloat *v;
 
 	if (!(ws = get_wobbly_surface(surface)))
@@ -605,28 +603,101 @@ wobbly_add_geometry(struct weston_view *view)
 		cell_w = width / ws->x_cells;
 		cell_h = height / ws->y_cells;
 
-		iw = ws->x_cells + 1;
-		ih = ws->y_cells + 1;
+		ww->iw = ws->x_cells + 1;
+		ww->ih = ws->y_cells + 1;
 
-		v = wl_array_add(&gr->vertices, sizeof (GLfloat) * 4 * iw * ih);
+		v = wl_array_add(&gr->vertices,
+				sizeof (GLfloat) * 4 * ww->iw * ww->ih);
 
-		for (y = 0; y < ih; y++)
+		for (y = 0; y < ww->ih; y++)
 		{
-			for (x = 0; x < iw; x++)
+			for (x = 0; x < ww->iw; x++)
 			{
+				/* Compute vertex coordinates */
 				bezierPatchEvaluate(ww->model,
 							(x * cell_w) / width,
 							(y * cell_h) / height,
 							&deformedX,
 							&deformedY);
 
+				/* Vertex coord */
 				*v++ = deformedX;
 				*v++ = deformedY;
 
+				/* Texture coord */
 				*v++ = (x * cell_w) / width;
 				*v++ = (y * cell_h) / height;
 			}
 		}
+	}
+}
+
+static void
+wobbly_position_model(struct weston_view *view, struct surface *ws,
+			float hw, float hh, float tm[16])
+{
+	float cx, cy, tx, ty;
+	WobblyWindow *ww = ws->ww;
+
+	/* Calculate the vector from center last to center current */
+	cx = (ww->model->topLeft.x + hw) - ws->sx;
+	cy = (ww->model->topLeft.y + hh) - ws->sy;
+
+	/* Rotate the vector using the matrix inverse */
+	tx = tm[0] * cx + tm[1] * cy;
+	ty = tm[4] * cx + tm[5] * cy;
+
+	weston_view_set_position(view, tx + ws->x, ty + ws->y);
+
+	ws->x = view->geometry.x;
+	ws->y = view->geometry.y;
+
+	ws->sx = ww->model->topLeft.x + hw;
+	ws->sy = ww->model->topLeft.y + hh;
+}
+
+static void
+wobbly_transform_model(struct weston_view *view, GLfloat *v)
+{
+	struct surface *ws;
+	WobblyWindow *ww;
+	float x, y, hw, hh, *m, tm[16] = { 0 };
+	int i;
+
+	if (!(ws = get_wobbly_surface(view->surface)))
+		return;
+
+	ww = ws->ww;
+
+	hw = ((ww->model->bottomRight.x - ww->model->topLeft.x) / 2.0f);
+	hh = ((ww->model->bottomRight.y - ww->model->topLeft.y) / 2.0f);
+
+	/* Compute an inverse matrix for rotation manually
+	 * because we want to avoid inversed scale values. */
+	m = &view->transform.matrix.d[0];
+	tm[0] =  m[5];
+	tm[1] = -m[1];
+	tm[4] = -m[4];
+	tm[5] =  m[0];
+
+	/* Update position for compositor */
+	wobbly_position_model(view, ws, hw, hh, tm);
+
+	for (i = 0; i < ww->iw * ww->ih; i++) {
+		/* Center model on (0,0) */
+		x = (float) *v++ - ww->model->topLeft.x - hw;
+		y = (float) *v++ - ww->model->topLeft.y - hh;
+
+		/* Apply transformation */
+		*(v - 2) = (tm[0] * x + tm[1] * y);
+		*(v - 1) = (tm[4] * x + tm[5] * y);
+
+		/* Move to global position */
+		*(v - 2) += ws->x + (view->surface->width / 2.0f);
+		*(v - 1) += ws->y + (view->surface->height / 2.0f);
+
+		/* Skip texture coord */
+		v += 2;
 	}
 }
 
@@ -650,6 +721,7 @@ wobbly_paint_view(struct weston_view *view)
 		return;
 
 	indices = malloc(sizeof (GLushort) * ws->x_cells * ws->y_cells * 6);
+
 	if (!indices)
 		return;
 
@@ -663,6 +735,8 @@ wobbly_paint_view(struct weston_view *view)
 			*(indices + i++) = (y + 1) * x_pts + x + 1;
 			*(indices + i++) = (y + 1) * x_pts + x;
 		}
+
+	wobbly_transform_model(view, v);
 
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof *v, v);
 	glEnableVertexAttribArray(0);
@@ -683,22 +757,6 @@ wobbly_paint_view(struct weston_view *view)
 static void
 wobbly_done_paint(struct weston_view *view)
 {
-	struct weston_surface *surface = view->surface;
-	struct surface *ws;
-	WobblyWindow *ww;
-
-	if (!(ws = get_wobbly_surface(surface)))
-		return;
-
-	ww = ws->ww;
-
-	if (ww->wobbly)
-	{
-		ws->x = ww->model->topLeft.x;
-		ws->y = ww->model->topLeft.y;
-		weston_view_set_position(view, ws->x, ws->y);
-	}
-
 	weston_compositor_damage_all(view->surface->compositor);
 	weston_view_geometry_dirty(view);
 	weston_view_schedule_repaint(view);
@@ -715,10 +773,13 @@ wobbly_resize_notify(struct weston_view *view)
 	if (!(ws = get_surface(surface)))
 		return;
 
+	if (ws->width == surface->width && ws->height == surface->height)
+		return;
+
 	ww = ws->ww;
 
-	x = ws->x = view->geometry.x;
-	y = ws->y = view->geometry.y;
+	x = view->geometry.x;
+	y = view->geometry.y;
 	w = ws->width = surface->width;
 	h = ws->height = surface->height;
 
@@ -737,7 +798,7 @@ wobbly_move_notify(struct weston_view *view, int x, int y)
 	struct weston_surface *surface = view->surface;
 	struct surface *ws;
 	WobblyWindow *ww;
-	int dx, dy;
+	float dx, dy, tx, ty, *m;
 
 	if (!(ws = get_wobbly_surface(surface)))
 		return;
@@ -747,9 +808,13 @@ wobbly_move_notify(struct weston_view *view, int x, int y)
 	dx = x - ws->last_x;
 	dy = y - ws->last_y;
 
+	m = &view->transform.matrix.d[0];
+	tx = *(m+0) * dx + *(m+1) * dy;
+	ty = *(m+4) * dx + *(m+5) * dy;
+
 	if (ww->grabbed) {
-		ww->model->anchorObject->position.x += dx;
-		ww->model->anchorObject->position.y += dy;
+		ww->model->anchorObject->position.x += tx;
+		ww->model->anchorObject->position.y += ty;
 
 		ww->wobbly |= WobblyInitial;
 
@@ -871,6 +936,8 @@ wobbly_init(struct weston_view *view)
 	ws->height = surface->height;
 	ws->x = view->geometry.x;
 	ws->y = view->geometry.y;
+	ws->sx = ws->x + (ws->width / 2.0f);
+	ws->sy = ws->y + (ws->height / 2.0f);
 	ws->synced = 1;
 	ws->x_cells = 8;
 	ws->y_cells = 8;

@@ -660,6 +660,7 @@ struct weston_plugin_interface {
 	void (*move_notify)(struct weston_view *view, int dx, int dy);
 	void (*grab_notify)(struct weston_view *view, int x, int y);
 	void (*ungrab_notify)(struct weston_view *view);
+	void (*compute_bbox)(struct weston_view *view, pixman_region32_t *bbox);
 };
 
 struct weston_plugin {

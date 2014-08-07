@@ -887,6 +887,8 @@ view_compute_bbox(struct weston_view *view, int32_t sx, int32_t sy,
 	int_y = floorf(min_y);
 	pixman_region32_init_rect(bbox, int_x, int_y,
 				  ceilf(max_x) - int_x, ceilf(max_y) - int_y);
+
+	WESTON_PLUGIN_CALL(view->surface->compositor, compute_bbox, view, bbox);
 }
 
 static void

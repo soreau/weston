@@ -83,6 +83,7 @@ typedef struct _Model {
 	float	steps;
 	Point	topLeft;
 	Point	bottomRight;
+	pixman_region32_t bbox;
 } Model;
 
 typedef struct _WobblyWindow {
@@ -333,6 +334,8 @@ createModel(int	  x,
 
 	modelCalcBounds(model);
 
+	pixman_region32_init(&model->bbox);
+
 	return model;
 }
 
@@ -535,6 +538,28 @@ modelFindNearestObject(Model *model,
 }
 
 static void
+wobbly_compute_bbox(struct weston_view *view, pixman_region32_t *bbox)
+{
+	struct weston_surface *surface = view->surface;
+	struct surface *ws;
+	WobblyWindow *ww;
+	Model *model;
+
+	if (!(ws = get_wobbly_surface(surface)))
+		return;
+
+	ww = ws->ww;
+	model = ww->model;
+
+	if (ww->model && ww->wobbly && model->bbox.extents.x1 != 0 && model->bbox.extents.y1 != 0 && model->bbox.extents.x2 != 0 && model->bbox.extents.y2 != 0) {
+		bbox->extents.x1 = model->bbox.extents.x1;
+		bbox->extents.y1 = model->bbox.extents.y1;
+		bbox->extents.x2 = model->bbox.extents.x2;
+		bbox->extents.y2 = model->bbox.extents.y2;
+	}
+}
+
+static void
 wobbly_prepare_paint(struct weston_view *view, int msSinceLastPaint, int *needs_paint)
 {
 	struct weston_surface *surface = view->surface;
@@ -661,6 +686,7 @@ wobbly_transform_model(struct weston_view *view, GLfloat *v)
 {
 	struct surface *ws;
 	WobblyWindow *ww;
+	Model *model;
 	float x, y, hw, hh, *m, tm[16] = { 0 };
 	int i;
 
@@ -668,9 +694,10 @@ wobbly_transform_model(struct weston_view *view, GLfloat *v)
 		return;
 
 	ww = ws->ww;
+	model = ww->model;
 
-	hw = ((ww->model->bottomRight.x - ww->model->topLeft.x) / 2.0f);
-	hh = ((ww->model->bottomRight.y - ww->model->topLeft.y) / 2.0f);
+	hw = ((model->bottomRight.x - model->topLeft.x) / 2.0f);
+	hh = ((model->bottomRight.y - model->topLeft.y) / 2.0f);
 
 	/* Compute an inverse matrix for rotation manually
 	 * because we want to avoid inversed scale values. */
@@ -683,10 +710,15 @@ wobbly_transform_model(struct weston_view *view, GLfloat *v)
 	/* Update position for compositor */
 	wobbly_position_model(view, ws, hw, hh, tm);
 
+	model->bbox.extents.x1 = MAXSHORT;
+	model->bbox.extents.y1 = MAXSHORT;
+	model->bbox.extents.x2 = MINSHORT;
+	model->bbox.extents.y2 = MINSHORT;
+
 	for (i = 0; i < ww->iw * ww->ih; i++) {
 		/* Center model on (0,0) */
-		x = (float) *v++ - ww->model->topLeft.x - hw;
-		y = (float) *v++ - ww->model->topLeft.y - hh;
+		x = (float) *v++ - model->topLeft.x - hw;
+		y = (float) *v++ - model->topLeft.y - hh;
 
 		/* Apply transformation */
 		*(v - 2) = (tm[0] * x + tm[1] * y);
@@ -695,6 +727,16 @@ wobbly_transform_model(struct weston_view *view, GLfloat *v)
 		/* Move to global position */
 		*(v - 2) += ws->x + (view->surface->width / 2.0f);
 		*(v - 1) += ws->y + (view->surface->height / 2.0f);
+
+		if ((float) model->bbox.extents.x1 > (float) *(v - 2))
+			model->bbox.extents.x1 = (float) *(v - 2);
+		if ((float) model->bbox.extents.x2 < (float) *(v - 2))
+			model->bbox.extents.x2 = (float) *(v - 2);
+
+		if ((float) model->bbox.extents.y1 > (float) *(v - 1))
+			model->bbox.extents.y1 = (float) *(v - 1);
+		if ((float) model->bbox.extents.y2 < (float) *(v - 1))
+			model->bbox.extents.y2 = (float) *(v - 1);
 
 		/* Skip texture coord */
 		v += 2;
@@ -968,6 +1010,7 @@ wobbly_fini(struct weston_view *view)
 
 	if (ww->model)
 	{
+		pixman_region32_fini(&ww->model->bbox);
 		free(ww->model->objects);
 		free(ww->model);
 	}
@@ -1008,4 +1051,5 @@ WL_EXPORT struct weston_plugin_interface plugin_interface = {
 	.move_notify = wobbly_move_notify,
 	.grab_notify = wobbly_grab_notify,
 	.ungrab_notify = wobbly_ungrab_notify,
+	.compute_bbox = wobbly_compute_bbox,
 };

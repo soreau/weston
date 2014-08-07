@@ -881,6 +881,7 @@ wobbly_grab_notify(struct weston_view *view, int x, int y)
 	struct weston_surface *surface = view->surface;
 	struct surface *ws;
 	WobblyWindow *ww;
+	int gx, gy;
 
 	if (!(ws = get_surface(surface)))
 		return;
@@ -893,12 +894,16 @@ wobbly_grab_notify(struct weston_view *view, int x, int y)
 	if (wobblyEnsureModel(ws))
 	{
 		Spring *s;
-		int	   i;
+		int	i;
 
 		if (ww->model->anchorObject)
 			ww->model->anchorObject->immobile = 0;
 
-		ww->model->anchorObject = modelFindNearestObject(ww->model, x, y);
+		weston_view_from_global(view, x, y, &gx, &gy);
+		gx += ww->model->topLeft.x;
+		gy += ww->model->topLeft.y;
+
+		ww->model->anchorObject = modelFindNearestObject(ww->model, gx, gy);
 		ww->model->anchorObject->immobile = 1;
 
 		ww->grabbed = 1;

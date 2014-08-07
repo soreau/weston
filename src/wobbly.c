@@ -664,16 +664,16 @@ static void
 wobbly_position_model(struct weston_view *view, struct surface *ws,
 			float hw, float hh, float tm[16])
 {
-	float cx, cy, tx, ty;
+	float vx, vy, tx, ty;
 	WobblyWindow *ww = ws->ww;
 
 	/* Calculate the vector from center last to center current */
-	cx = (ww->model->topLeft.x + hw) - ws->sx;
-	cy = (ww->model->topLeft.y + hh) - ws->sy;
+	vx = (ww->model->topLeft.x + hw) - ws->sx;
+	vy = (ww->model->topLeft.y + hh) - ws->sy;
 
 	/* Rotate the vector using the matrix inverse */
-	tx = tm[0] * cx + tm[1] * cy;
-	ty = tm[4] * cx + tm[5] * cy;
+	tx = tm[0] * vx + tm[1] * vy;
+	ty = tm[4] * vx + tm[5] * vy;
 
 	weston_view_set_position(view, tx + ws->x, ty + ws->y);
 
@@ -724,22 +724,23 @@ wobbly_transform_model(struct weston_view *view, GLfloat *v)
 		y = (float) *v++ - model->topLeft.y - hh;
 
 		/* Apply transformation */
-		*(v - 2) = (tm[0] * x + tm[1] * y);
-		*(v - 1) = (tm[4] * x + tm[5] * y);
+		*(v - 2) = tm[0] * x + tm[1] * y;
+		*(v - 1) = tm[4] * x + tm[5] * y;
 
 		/* Move to global position */
 		*(v - 2) += ws->x + (view->surface->width / 2.0f);
 		*(v - 1) += ws->y + (view->surface->height / 2.0f);
 
+		/* Compute bounding box */
 		if ((float) model->bbox.extents.x1 > (float) *(v - 2))
-			model->bbox.extents.x1 = (float) *(v - 2);
+			model->bbox.extents.x1 = *(v - 2);
 		if ((float) model->bbox.extents.x2 < (float) *(v - 2))
-			model->bbox.extents.x2 = (float) *(v - 2);
+			model->bbox.extents.x2 = *(v - 2);
 
 		if ((float) model->bbox.extents.y1 > (float) *(v - 1))
-			model->bbox.extents.y1 = (float) *(v - 1);
+			model->bbox.extents.y1 = *(v - 1);
 		if ((float) model->bbox.extents.y2 < (float) *(v - 1))
-			model->bbox.extents.y2 = (float) *(v - 1);
+			model->bbox.extents.y2 = *(v - 1);
 		model->bbox_current = 1;
 
 		/* Skip texture coord */

@@ -83,6 +83,7 @@ typedef struct _Model {
 	float	steps;
 	Point	topLeft;
 	Point	bottomRight;
+	int	bbox_current;
 	pixman_region32_t bbox;
 } Model;
 
@@ -335,6 +336,7 @@ createModel(int	  x,
 	modelCalcBounds(model);
 
 	pixman_region32_init(&model->bbox);
+	model->bbox_current = 0;
 
 	return model;
 }
@@ -551,11 +553,12 @@ wobbly_compute_bbox(struct weston_view *view, pixman_region32_t *bbox)
 	ww = ws->ww;
 	model = ww->model;
 
-	if (ww->model && ww->wobbly && model->bbox.extents.x1 != 0 && model->bbox.extents.y1 != 0 && model->bbox.extents.x2 != 0 && model->bbox.extents.y2 != 0) {
+	if (ww->model && ww->wobbly && model->bbox_current) {
 		bbox->extents.x1 = model->bbox.extents.x1;
 		bbox->extents.y1 = model->bbox.extents.y1;
 		bbox->extents.x2 = model->bbox.extents.x2;
 		bbox->extents.y2 = model->bbox.extents.y2;
+		model->bbox_current = 0;
 	}
 }
 
@@ -737,6 +740,7 @@ wobbly_transform_model(struct weston_view *view, GLfloat *v)
 			model->bbox.extents.y1 = (float) *(v - 1);
 		if ((float) model->bbox.extents.y2 < (float) *(v - 1))
 			model->bbox.extents.y2 = (float) *(v - 1);
+		model->bbox_current = 1;
 
 		/* Skip texture coord */
 		v += 2;

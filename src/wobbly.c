@@ -866,6 +866,7 @@ wobbly_move_notify(struct weston_view *view, int x, int y)
 		ww->model->anchorObject->position.y += ty;
 
 		ww->wobbly |= WobblyInitial;
+		ws->synced = 0;
 
 		if (wl_list_empty(&ws->transform.link))
 			wl_list_insert(&view->geometry.transformation_list, &ws->transform.link);

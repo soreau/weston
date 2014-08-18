@@ -4343,7 +4343,7 @@ rotate_grab_motion(struct weston_pointer_grab *grab, uint32_t time,
 		container_of(grab, struct rotate_grab, base.grab);
 	struct weston_pointer *pointer = grab->pointer;
 	struct shell_surface *shsurf = rotate->base.shsurf;
-	float cx, cy, dx, dy, cposx, cposy, dposx, dposy, r;
+	float cx, cy, dx, dy, r;
 
 	weston_pointer_move(pointer, x, y);
 
@@ -4380,18 +4380,6 @@ rotate_grab_motion(struct weston_pointer_grab *grab, uint32_t time,
 		wl_list_init(&shsurf->rotation.transform.link);
 		weston_matrix_init(&shsurf->rotation.rotation);
 		weston_matrix_init(&rotate->rotation);
-	}
-
-	/* We need to adjust the position of the surface
-	 * in case it was resized in a rotated state before */
-	cposx = shsurf->view->geometry.x + cx;
-	cposy = shsurf->view->geometry.y + cy;
-	dposx = rotate->center.x - cposx;
-	dposy = rotate->center.y - cposy;
-	if (dposx != 0.0f || dposy != 0.0f) {
-		weston_view_set_position(shsurf->view,
-					 shsurf->view->geometry.x + dposx,
-					 shsurf->view->geometry.y + dposy);
 	}
 
 	/* Repaint implies weston_surface_update_transform(), which
@@ -5064,6 +5052,44 @@ map(struct desktop_shell *shell, struct shell_surface *shsurf,
 }
 
 static void
+shell_surface_adjust_for_transform(struct shell_surface *shsurf)
+{
+	struct weston_matrix *matrix;
+	float cx, cy, cposx, cposy, dposx, dposy, rcx, rcy;
+
+	/* Adjust for rotation transformation */
+	cx = 0.5f * shsurf->surface->width;
+	cy = 0.5f * shsurf->surface->height;
+
+	wl_list_remove(&shsurf->rotation.transform.link);
+	weston_view_geometry_dirty(shsurf->view);
+
+	matrix = &shsurf->rotation.transform.matrix;
+
+	weston_matrix_init(matrix);
+	weston_matrix_translate(matrix, -cx, -cy, 0.0f);
+	weston_matrix_multiply(matrix, &shsurf->rotation.rotation);
+	weston_matrix_translate(matrix, cx, cy, 0.0f);
+
+	wl_list_insert(
+		&shsurf->view->geometry.transformation_list,
+		&shsurf->rotation.transform.link);
+
+	weston_view_to_global_float(shsurf->view, cx, cy, &rcx, &rcy);
+
+	/* Position surface to maintain expected center coordinates */
+	cposx = shsurf->view->geometry.x + cx;
+	cposy = shsurf->view->geometry.y + cy;
+	dposx = rcx - cposx;
+	dposy = rcy - cposy;
+	if (dposx != 0.0f || dposy != 0.0f) {
+		weston_view_set_position(shsurf->view,
+					 shsurf->view->geometry.x + dposx,
+					 shsurf->view->geometry.y + dposy);
+	}
+}
+
+static void
 configure(struct desktop_shell *shell, struct weston_surface *surface,
 	  float x, float y)
 {
@@ -5097,6 +5123,9 @@ configure(struct desktop_shell *shell, struct weston_surface *surface,
 		if (shsurf->state.maximized)
 			surface->output = shsurf->output;
 	}
+
+	if (!wl_list_empty(&shsurf->rotation.transform.link))
+		shell_surface_adjust_for_transform(shsurf);
 }
 
 static void

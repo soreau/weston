@@ -827,8 +827,8 @@ wobbly_resize_notify(struct weston_view *view)
 
 	ww = ws->ww;
 
-	x = view->geometry.x;
-	y = view->geometry.y;
+	x = ws->x = view->geometry.x;
+	y = ws->y = view->geometry.y;
 	w = ws->width = surface->width;
 	h = ws->height = surface->height;
 

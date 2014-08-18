@@ -628,7 +628,7 @@ struct weston_compositor {
 };
 
 /* WESTON_PLUGIN_CALL_SINGLE(compositor, weston_plugin, function, arguments to function)
- * Call a function for a specific plugin */
+ * Call a function for a weston_plugin */
 #define WESTON_PLUGIN_CALL_SINGLE(p, f, ...) ({				\
 	if (p->interface->f)						\
 		p->interface->f(__VA_ARGS__);				\
@@ -640,7 +640,7 @@ struct weston_compositor {
 	struct weston_plugin *p;					\
 									\
 	wl_list_for_each(p, &(c)->plugin_list, link)			\
-		WESTON_PLUGIN_CALL_SINGLE(p, f, __VA_ARGS__);	\
+		WESTON_PLUGIN_CALL_SINGLE(p, f, __VA_ARGS__);		\
 })
 
 struct weston_plugin;

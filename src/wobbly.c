@@ -100,7 +100,7 @@ struct surface {
 	WobblyWindow *ww;
 	struct weston_surface *surface;
 	struct weston_transform transform;
-	float	x, y, sx, sy;
+	float	x, y, cx, cy;
 	float	last_x, last_y;
 	int	width, height;
 	int	x_cells, y_cells;
@@ -668,8 +668,8 @@ wobbly_position_model(struct weston_view *view, struct surface *ws,
 	WobblyWindow *ww = ws->ww;
 
 	/* Calculate the vector from center last to center current */
-	vx = (ww->model->topLeft.x + hw) - ws->sx;
-	vy = (ww->model->topLeft.y + hh) - ws->sy;
+	vx = (ww->model->topLeft.x + hw) - ws->cx;
+	vy = (ww->model->topLeft.y + hh) - ws->cy;
 
 	/* Rotate the vector using the matrix inverse */
 	tx = tm[0] * vx + tm[1] * vy;
@@ -680,8 +680,8 @@ wobbly_position_model(struct weston_view *view, struct surface *ws,
 	ws->x = view->geometry.x;
 	ws->y = view->geometry.y;
 
-	ws->sx = ww->model->topLeft.x + hw;
-	ws->sy = ww->model->topLeft.y + hh;
+	ws->cx = ww->model->topLeft.x + hw;
+	ws->cy = ww->model->topLeft.y + hh;
 }
 
 static void
@@ -991,8 +991,8 @@ wobbly_init(struct weston_view *view)
 	ws->height = surface->height;
 	ws->x = view->geometry.x;
 	ws->y = view->geometry.y;
-	ws->sx = ws->x + (ws->width / 2.0f);
-	ws->sy = ws->y + (ws->height / 2.0f);
+	ws->cx = ws->x + (ws->width / 2.0f);
+	ws->cy = ws->y + (ws->height / 2.0f);
 	ws->synced = 1;
 	ws->x_cells = 8;
 	ws->y_cells = 8;

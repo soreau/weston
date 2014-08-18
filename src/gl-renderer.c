@@ -436,6 +436,18 @@ draw_view(struct weston_view *ev, struct weston_output *output,
 	WESTON_PLUGIN_CALL(ec, prepare_paint, ev, ms_elapsed, &needs_paint);
 
 	if (!needs_paint) {
+		if (pixman_region32_not_empty(&surface_blend)) {
+			use_shader(gr, gs->shader);
+			glEnable(GL_BLEND);
+		} else {
+			use_shader(gr, &gr->texture_shader_rgbx);
+			shader_uniforms(&gr->texture_shader_rgbx, ev, output);
+			if (ev->alpha < 1.0)
+				glEnable(GL_BLEND);
+			else
+				glDisable(GL_BLEND);
+		}
+
 		WESTON_PLUGIN_CALL(ec, add_geometry, ev);
 		WESTON_PLUGIN_CALL(ec, paint_view, ev);
 		WESTON_PLUGIN_CALL(ec, done_paint, ev);

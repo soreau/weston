@@ -595,11 +595,6 @@ wobbly_prepare_paint(struct weston_view *view, int msSinceLastPaint, int *needs_
 				wl_list_remove(&ws->transform.link);
 				wl_list_init(&ws->transform.link);
 				ws->synced = 1;
-
-				weston_compositor_damage_all(view->surface->compositor);
-				weston_view_geometry_dirty(view);
-				weston_view_update_transform(view);
-				weston_view_schedule_repaint(view);
 			}
 		}
 	}
@@ -806,7 +801,6 @@ wobbly_paint_view(struct weston_view *view)
 static void
 wobbly_done_paint(struct weston_view *view)
 {
-	weston_compositor_damage_all(view->surface->compositor);
 	weston_view_geometry_dirty(view);
 	weston_view_schedule_repaint(view);
 }

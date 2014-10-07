@@ -34,7 +34,7 @@
 #include "compositor.h"
 #include "gl-renderer.h"
 
-#define WOBBLY_FRICTION 3
+#define WOBBLY_FRICTION 2
 #define WOBBLY_SPRING_K 8
 
 #define GRID_WIDTH  4
@@ -42,7 +42,7 @@
 
 #define MODEL_MAX_SPRINGS (GRID_WIDTH * GRID_HEIGHT * 2)
 
-#define MASS 50.0f
+#define MASS 20.0f
 
 typedef struct _xy_pair {
 	float	x, y;

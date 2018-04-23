@@ -43,6 +43,7 @@
 #include "shared/helpers.h"
 #include "shared/timespec-util.h"
 #include "libweston-desktop/libweston-desktop.h"
+#include "libweston/xwps-backend.h"
 
 #define DEFAULT_NUM_WORKSPACES 1
 #define DEFAULT_WORKSPACE_CHANGE_ANIMATION_LENGTH 200
@@ -1550,9 +1551,15 @@ surface_move(struct shell_surface *shsurf, struct weston_pointer *pointer,
 	     bool client_initiated)
 {
 	struct weston_move_grab *move;
+	struct weston_surface *surface;
 
 	if (!shsurf)
 		return -1;
+
+	surface = weston_desktop_surface_get_surface(shsurf->desktop_surface);
+
+	if (xwpsb_surface_move(surface->compositor->xwpsb, surface))
+		return 0;
 
 	if (shsurf->grabbed ||
 	    weston_desktop_surface_get_fullscreen(shsurf->desktop_surface) ||
@@ -1723,6 +1730,12 @@ surface_resize(struct shell_surface *shsurf,
 		WL_SHELL_SURFACE_RESIZE_LEFT | WL_SHELL_SURFACE_RESIZE_RIGHT;
 	const unsigned resize_any = resize_topbottom | resize_leftright;
 	struct weston_geometry geometry;
+	struct weston_surface *surface;
+
+	surface = weston_desktop_surface_get_surface(shsurf->desktop_surface);
+
+	if (xwpsb_surface_resize(surface->compositor->xwpsb, surface, edges))
+		return 0;
 
 	if (shsurf->grabbed ||
 	    weston_desktop_surface_get_fullscreen(shsurf->desktop_surface) ||
@@ -2377,6 +2390,8 @@ desktop_surface_removed(struct weston_desktop_surface *desktop_surface,
 
 	wl_signal_emit(&shsurf->destroy_signal, shsurf);
 
+	xwpsb_removed_notify(shsurf->shell->compositor->xwpsb, surface);
+
 	if (shsurf->fullscreen.black_view)
 		weston_surface_destroy(shsurf->fullscreen.black_view->surface);
 
@@ -2582,6 +2597,8 @@ desktop_surface_committed(struct weston_desktop_surface *desktop_surface,
 		wl_list_for_each(view, &surface->views, surface_link)
 			weston_view_update_transform(view);
 	}
+
+	xwpsb_committed_notify(shell->compositor->xwpsb, surface);
 }
 
 static void
@@ -2736,7 +2753,8 @@ desktop_surface_minimized_requested(struct weston_desktop_surface *desktop_surfa
 		weston_desktop_surface_get_surface(desktop_surface);
 
 	 /* apply compositor's own minimization logic (hide) */
-	set_minimized(surface);
+	//set_minimized(surface);
+	xwpsb_surface_minimize(surface->compositor->xwpsb, surface);
 }
 
 static void
@@ -4123,14 +4141,16 @@ transform_handler(struct wl_listener *listener, void *data)
 		shsurf->shell->xwayland_surface_api = api;
 	}
 
+	x = shsurf->view->geometry.x;
+	y = shsurf->view->geometry.y;
+
+	xwpsb_position_notify(surface->compositor->xwpsb, surface, x, y);
+
 	if (!api || !api->is_xwayland_surface(surface))
 		return;
 
 	if (!weston_view_is_mapped(shsurf->view))
 		return;
-
-	x = shsurf->view->geometry.x;
-	y = shsurf->view->geometry.y;
 
 	api->send_position(surface, x, y);
 }
@@ -5024,7 +5044,7 @@ wet_shell_init(struct weston_compositor *ec,
 	weston_layer_set_position(&shell->fullscreen_layer,
 				  WESTON_LAYER_POSITION_FULLSCREEN);
 	weston_layer_set_position(&shell->panel_layer,
-				  WESTON_LAYER_POSITION_UI);
+				  WESTON_LAYER_POSITION_BACKGROUND);
 	weston_layer_set_position(&shell->background_layer,
 				  WESTON_LAYER_POSITION_BACKGROUND);
 
@@ -5093,6 +5113,8 @@ wet_shell_init(struct weston_compositor *ec,
 	shell_fade_init(shell);
 
 	clock_gettime(CLOCK_MONOTONIC, &shell->startup_time);
+
+	ec->xwpsb = xwpsb_init(ec);
 
 	return 0;
 }

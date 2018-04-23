@@ -1631,7 +1631,7 @@ weston_pointer_move_to(struct weston_pointer *pointer,
 {
 	int32_t ix, iy;
 
-	weston_pointer_clamp (pointer, &x, &y);
+	//weston_pointer_clamp (pointer, &x, &y);
 
 	pointer->x = x;
 	pointer->y = y;

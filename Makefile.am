@@ -63,7 +63,7 @@ libweston_@LIBWESTON_MAJOR@_la_CPPFLAGS = $(AM_CPPFLAGS) -DIN_WESTON
 libweston_@LIBWESTON_MAJOR@_la_CFLAGS = $(AM_CFLAGS) \
 	$(COMPOSITOR_CFLAGS) $(EGL_CFLAGS) $(LIBDRM_CFLAGS)
 libweston_@LIBWESTON_MAJOR@_la_LIBADD = $(COMPOSITOR_LIBS) \
-	$(DL_LIBS) -lm $(CLOCK_GETTIME_LIBS) \
+	$(DL_LIBS) -lm -lEGL -lGL -lX11-xcb -lX11 -lxcb -lxcb-shape -lxcb-xkb  $(CLOCK_GETTIME_LIBS) \
 	$(LIBINPUT_BACKEND_LIBS) libshared.la
 libweston_@LIBWESTON_MAJOR@_la_LDFLAGS = -version-info $(LT_VERSION_INFO)
 
@@ -78,6 +78,8 @@ libweston_@LIBWESTON_MAJOR@_la_SOURCES =			\
 	libweston/compositor-rdp.h			\
 	libweston/compositor-wayland.h			\
 	libweston/compositor-x11.h			\
+	libweston/xwps-backend.c			\
+	libweston/xwps-backend.h			\
 	libweston/input.c				\
 	libweston/data-device.c				\
 	libweston/screenshooter.c			\

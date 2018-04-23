@@ -63,6 +63,7 @@
 #include "git-version.h"
 #include "version.h"
 #include "plugin-registry.h"
+#include "xwps-backend.h"
 
 #define DEFAULT_REPAINT_WINDOW 7 /* milliseconds */
 
@@ -2005,6 +2006,7 @@ weston_surface_attach(struct weston_surface *surface,
 	}
 
 	surface->compositor->renderer->attach(surface, buffer);
+	xwpsb_attach_notify(surface, buffer);
 
 	weston_surface_calculate_size_from_buffer(surface);
 	weston_presentation_feedback_discard_list(&surface->feedback_list);
@@ -2034,8 +2036,10 @@ static void
 surface_flush_damage(struct weston_surface *surface)
 {
 	if (surface->buffer_ref.buffer &&
-	    wl_shm_buffer_get(surface->buffer_ref.buffer->resource))
+	    wl_shm_buffer_get(surface->buffer_ref.buffer->resource)) {
 		surface->compositor->renderer->flush_damage(surface);
+		xwpsb_flush_damage_notify(surface);
+	}
 
 	if (weston_timeline_enabled_ &&
 	    pixman_region32_not_empty(&surface->damage))

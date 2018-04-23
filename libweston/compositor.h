@@ -36,6 +36,7 @@ extern "C" {
 #include <time.h>
 #include <pixman.h>
 #include <xkbcommon/xkbcommon.h>
+#include <EGL/egl.h>
 
 #define WL_HIDE_DEPRECATED
 #include <wayland-server.h>
@@ -952,7 +953,11 @@ struct weston_compositor {
 
 	int exit_code;
 
-	void *user_data;
+	EGLDisplay egl_display;
+	EGLSurface egl_surface;
+	EGLContext egl_context;
+
+	void *user_data, *xwpsb;
 	void (*exit)(struct weston_compositor *c);
 
 	/* Whether to let the compositor run without any input device. */

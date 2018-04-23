@@ -3698,6 +3698,10 @@ gl_renderer_setup(struct weston_compositor *ec, EGLSurface egl_surface)
 		}
 	}
 
+	ec->egl_display = gr->egl_display;
+	ec->egl_surface = egl_surface;
+	ec->egl_context = gr->egl_context;
+
 	ret = eglMakeCurrent(gr->egl_display, egl_surface,
 			     egl_surface, gr->egl_context);
 	if (ret == EGL_FALSE) {

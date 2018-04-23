@@ -33,6 +33,7 @@
 
 #include "libweston-desktop.h"
 #include "internal.h"
+#include "libweston/xwps-backend.h"
 
 struct weston_desktop_view {
 	struct wl_list link;
@@ -289,6 +290,8 @@ weston_desktop_surface_create(struct weston_desktop *desktop,
 	wl_list_init(&surface->grab_link);
 
 	wl_signal_init(&surface->metadata_signal);
+
+	xwpsb_added_notify(wsurface->compositor->xwpsb, wsurface);
 
 	return surface;
 }
@@ -699,6 +702,9 @@ weston_desktop_surface_set_title(struct weston_desktop_surface *surface,
 	surface->title = tmp;
 	wl_signal_emit(&surface->metadata_signal, surface);
 	free(old);
+
+	xwpsb_set_title(surface->surface->compositor->xwpsb,
+			surface->surface, title);
 }
 
 void
